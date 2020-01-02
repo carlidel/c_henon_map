@@ -1,15 +1,3 @@
-/*
-<%
-setup_pybind11(cfg)
-cfg['dependencies'] = ['c_henon_map.h']
-cfg['compiler_args'] = ['-std=c++14', '-O3', '-c', '-DTHRUST_DEVICE_SYSTEM=THRUST_DEVICE_SYSTEM_OMP', '-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v9.2\\include', '-fopenmp', '/O2', '/openmp']
-cfg['linker_args'] = ['-lgomp'] 
-%>
-*/
-#include <pybind11/pybind11.h>
-#include <pybind11/stl.h>
-namespace py = pybind11;
-
 #include "c_henon_map.h"
 
 // x0 functor
@@ -256,18 +244,4 @@ std::vector<unsigned int> henon_grid::compute(unsigned int kernel_iterations, un
     std::vector<unsigned int> times(n_x * n_y);
     thrust::copy(T.begin(), T.end(), times.begin());
     return times;
-}
-
-// PYTHON BINDING
-PYBIND11_MODULE(c_henon_map, m)
-{
-    py::class_<henon_radial>(m, "henon_radial")
-        .def(py::init<unsigned int, unsigned int, double>())
-        .def("reset", &henon_radial::reset)
-        .def("compute", &henon_radial::compute);
-
-    py::class_<henon_grid>(m, "henon_grid")
-        .def(py::init<unsigned int, unsigned int, double>())
-        .def("reset", &henon_grid::reset)
-        .def("compute", &henon_grid::compute);
 }
