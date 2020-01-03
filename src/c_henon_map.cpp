@@ -177,8 +177,8 @@ henon_grid::henon_grid(unsigned int _n_x, unsigned int _n_y, double _epsilon) : 
 #if THRUST_DEVICE_SYSTEM != THRUST_DEVICE_SYSTEM_OMP
     cudaSetDevice(1);
 #endif
-    dx = 1.0 / n_x;
-    dy = 1.0 / n_y;
+    dx = 1.0 / (n_x - 1);
+    dy = 1.0 / (n_y - 1);
 
     X.resize(n_x * n_y);
     Y.resize(n_x * n_y);
@@ -231,7 +231,6 @@ std::vector<unsigned int> henon_grid::compute(unsigned int kernel_iterations, un
 {
     for (unsigned int i = 0; i < block_iterations; i++)
     {
-        std::cout << i << std::endl;
         henon_map temp_hm(kernel_iterations, epsilon);
         thrust::for_each(
             thrust::make_zip_iterator(thrust::make_tuple(X.begin(), P_X.begin(), Y.begin(), P_Y.begin(), T.begin())),
