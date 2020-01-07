@@ -86,7 +86,7 @@ class henon_grid(object):
         self.engine = cpp_hm.henon_grid(n_x, n_y, epsilon)
         self.times = np.array(self.engine.compute(0, 1))
 
-        def reset(self):
+    def reset(self):
         """Reset the engine to the initial conditions
         """
         self.engine.reset()
@@ -119,3 +119,66 @@ class henon_grid(object):
             2d matrix of the times.
         """
         return self.times.reshape((self.n_x, self.n_y))
+
+
+class henon_scan(object):
+    def __init__(self, x0, y0, px0, py0, epsilon):
+        """Initialize custom henon-scan
+        
+        Parameters
+        ----------
+        object : self
+            self
+        x0 : ndarray
+            x starting positions
+        y0 : ndarray
+            y starting positions
+        px0 : ndarray
+            px starting conditions
+        py0 : ndarray
+            py starting positions
+        epsilon : float
+            intensity of modulation (see references)
+        """        
+        self.x0 = x0
+        self.y0 = y0
+        self.px0 = px0
+        self.py0 = py0
+        self.epsilon = epsilon
+
+        self.engine = cpp_hm.henon_scan(x0, y0, px0, py0, epsilon)
+        self.times = np.array(self.engine.compute(0, 1)[2])
+
+    def reset(self):
+        """Reset the engine to the initial condition
+        """        
+        self.engine.reset()
+        self.times = np.array(self.engine.compute(0, 1)[2])
+
+    def compute(self, n_iterations):
+        """Compute n iterations of the map
+        
+        Parameters
+        ----------
+        n_iterations : int
+            number of iterations
+        
+        Returns
+        -------
+        (ndarray, ndarray, ndarray)
+            x0, y0, times
+        """
+        data = self.engine.compute(n_iterations, 1)
+        self.times = np.array(data[2])
+        return np.array(data[0]), np.array(data[1]), np.array(data[2])
+
+    def get_times(self):
+        """Get the survival times of the molecules in a tuple
+        
+        Returns
+        -------
+        (ndarray, ndarray, ndarray)
+            x0, y0, times
+        """
+        return self.x0, self.y0, self.times
+

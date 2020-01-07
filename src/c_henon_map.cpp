@@ -244,3 +244,63 @@ std::vector<unsigned int> henon_grid::compute(unsigned int kernel_iterations, un
     thrust::copy(T.begin(), T.end(), times.begin());
     return times;
 }
+
+// henon_scan
+
+henon_scan::henon_scan() {}
+
+henon_scan::henon_scan(std::vector<double> _x0, std::vector<double> _y0, std::vector<double> _px0, std::vector<double> _py0, double _epsilon) : x0(_x0), y0(_y0), px0(_px0), py0(_py0)
+{
+#if THRUST_DEVICE_SYSTEM != THRUST_DEVICE_SYSTEM_OMP
+    cudaSetDevice(1);
+#endif
+
+    X = x0;
+    Y = y0;
+    X_0 = x0;
+    Y_0 = y0;
+
+    P_X.resize(x0.size());
+    P_Y.resize(x0.size());
+    P_X_0.resize(x0.size());
+    P_Y_0.resize(x0.size());
+
+    thrust::fill(P_X.begin(), P_X.end(), 0.0);
+    thrust::fill(P_Y.begin(), P_Y.end(), 0.0);
+    thrust::fill(P_X_0.begin(), P_X_0.end(), 0.0);
+    thrust::fill(P_Y_0.begin(), P_Y_0.end(), 0.0);
+
+    T.resize(x0.size());
+    thrust::fill(T.begin(), T.end(), 0.0);
+}
+
+henon_scan::~henon_scan() {}
+
+void henon_scan::reset()
+{
+    X = X_0;
+    Y = Y_0;
+    P_X = P_X_0;
+    P_Y = P_Y_0;
+
+    thrust::fill(T.begin(), T.end(), 0.0);
+}
+
+std::tuple<std::vector<double>, std::vector<double>, std::vector<unsigned int>> henon_scan::compute(unsigned int kernel_iterations, unsigned int block_iterations)
+{
+    for (unsigned int i = 0; i < block_iterations; i++)
+    {
+        henon_map temp_hm(kernel_iterations, epsilon);
+        thrust::for_each(
+            thrust::make_zip_iterator(thrust::make_tuple(X.begin(), P_X.begin(), Y.begin(), P_Y.begin(), T.begin())),
+            thrust::make_zip_iterator(thrust::make_tuple(X.end(), P_X.end(), Y.end(), P_Y.end(), T.end())),
+            temp_hm);
+#if THRUST_DEVICE_SYSTEM != THRUST_DEVICE_SYSTEM_OMP
+        cudaDeviceSynchronize();
+#endif
+    }
+    std::vector<unsigned int> times(X.size());
+    thrust::copy(T.begin(), T.end(), times.begin());
+
+    return std::tuple<std::vector<double>, std::vector<double>, std::vector<unsigned int>> (x0, y0, times);
+}

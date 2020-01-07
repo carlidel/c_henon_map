@@ -6,6 +6,7 @@
 #include <vector>
 #include <cmath>
 #include <string>
+#include <tuple>
 
 #if THRUST_DEVICE_SYSTEM != THRUST_DEVICE_SYSTEM_OMP
 #include <cuda.h>
@@ -130,6 +131,25 @@ public:
 
     void reset();
     std::vector<unsigned int> compute(unsigned int kernel_iterations, unsigned int block_iterations=1);
+};
+
+class henon_scan
+{
+public:
+    std::vector<double> x0, y0, px0, py0;
+
+    double epsilon;
+
+    thrust::device_vector<double> X, Y, P_X, P_Y;
+    thrust::device_vector<double> X_0, Y_0, P_X_0, P_Y_0;
+    thrust::device_vector<unsigned int> T;
+
+    henon_scan();
+    henon_scan(std::vector<double> _x0, std::vector<double> _y0, std::vector<double> _px0, std::vector<double> _py0, double _epsilon);
+    ~henon_scan();
+
+    void reset();
+    std::tuple<std::vector<double>, std::vector<double>, std::vector<unsigned int>> compute(unsigned int kernel_iterations, unsigned int block_iterations = 1);
 };
 
 #endif //C_HENON_MAP_H

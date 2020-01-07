@@ -16,4 +16,9 @@ PYBIND11_MODULE(c_henon_map, m)
         .def(py::init<unsigned int, unsigned int, double>())
         .def("reset", &henon_grid::reset)
         .def("compute", &henon_grid::compute);
+
+    py::class_<henon_scan>(m, "henon_scan")
+        .def(py::init<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>, double>())
+        .def("reset", &henon_scan::reset)
+        .def("compute", &henon_scan::compute);
 }
