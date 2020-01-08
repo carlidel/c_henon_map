@@ -24,7 +24,7 @@ class get_pybind_include(object):
 
 ext_modules = [
     Extension(
-        'c_henon_map',
+        'henon_map.c_henon_map',
         glob.glob('src/*.cpp'),
         include_dirs=[
             'src/',
