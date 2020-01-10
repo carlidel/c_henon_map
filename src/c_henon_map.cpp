@@ -44,7 +44,7 @@ template <typename Tuple> __host__ __device__ void henon_map::operator()(Tuple t
     double temp1;
     double temp2;
 
-    if (thrust::get<0>(t) == 0.0 && thrust::get<2>(t) == 0.0)
+    if (isnan(thrust::get<0>(t)))
     {
         return;
     }
@@ -62,13 +62,13 @@ template <typename Tuple> __host__ __device__ void henon_map::operator()(Tuple t
         cosy = cos(omega_y);
         siny = sin(omega_y);
 
-        if (thrust::get<0>(t) * thrust::get<0>(t) + thrust::get<2>(t) * thrust::get<2>(t) > limit)
+        if (thrust::get<0>(t) * thrust::get<0>(t) + thrust::get<2>(t) * thrust::get<2>(t) > limit || isnan(thrust::get<0>(t)))
         {
             // Particle lost!
-            thrust::get<0>(t) = 0.0;
-            thrust::get<1>(t) = 0.0;
-            thrust::get<2>(t) = 0.0;
-            thrust::get<3>(t) = 0.0;
+            thrust::get<0>(t) = nan("");
+            thrust::get<1>(t) = nan("");
+            thrust::get<2>(t) = nan("");
+            thrust::get<3>(t) = nan("");
             return;
         }
 
