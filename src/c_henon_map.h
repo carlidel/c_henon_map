@@ -35,7 +35,7 @@ struct radial
     double dtheta;
     double dx;
 
-    radial(double _nx, double _dtheta, double _dx);
+    radial(unsigned int _nx, double _dtheta, double _dx);
 
     template <typename Tuple> __host__ __device__ void operator()(Tuple t);
 };
@@ -103,6 +103,7 @@ public:
     thrust::device_vector<double> X, Y, P_X, P_Y;
     thrust::device_vector<double> X_0, Y_0, P_X_0, P_Y_0;
     thrust::device_vector<unsigned int> T, INDEX;
+    thrust::device_vector<bool> LOST;
 
     henon_radial();
     henon_radial(unsigned int _n_theta, unsigned int _n_steps, double _epsilon);
@@ -110,6 +111,7 @@ public:
 
     void reset();
     std::vector<unsigned int> compute(unsigned int kernel_iterations, unsigned int block_iterations=1);
+    std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>, std::vector<unsigned int>, std::vector<bool>> get_data();
 };
 
 class henon_grid
@@ -125,6 +127,7 @@ public:
     thrust::device_vector<double> X, Y, P_X, P_Y;
     thrust::device_vector<double> X_0, Y_0, P_X_0, P_Y_0;
     thrust::device_vector<unsigned int> T, INDEX;
+    thrust::device_vector<bool> LOST;
 
     henon_grid();
     henon_grid(unsigned int _n_x, unsigned int _n_y, double _epsilon);
@@ -132,6 +135,7 @@ public:
 
     void reset();
     std::vector<unsigned int> compute(unsigned int kernel_iterations, unsigned int block_iterations=1);
+    std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>, std::vector<unsigned int>, std::vector<bool>> get_data();
 };
 
 class henon_scan
@@ -144,6 +148,7 @@ public:
     thrust::device_vector<double> X, Y, P_X, P_Y;
     thrust::device_vector<double> X_0, Y_0, P_X_0, P_Y_0;
     thrust::device_vector<unsigned int> T;
+    thrust::device_vector<bool> LOST;
 
     henon_scan();
     henon_scan(std::vector<double> _x0, std::vector<double> _y0, std::vector<double> _px0, std::vector<double> _py0, double _epsilon);
@@ -151,6 +156,7 @@ public:
 
     void reset();
     std::tuple<std::vector<double>, std::vector<double>, std::vector<unsigned int>> compute(unsigned int kernel_iterations, unsigned int block_iterations = 1);
+    std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>, std::vector<unsigned int>, std::vector<bool>> get_data();
 };
 
 #endif //C_HENON_MAP_H

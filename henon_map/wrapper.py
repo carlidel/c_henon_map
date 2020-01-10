@@ -62,6 +62,19 @@ class henon_radial(object):
         """        
         return pd.DataFrame(self.times.reshape((self.n_theta, self.n_steps)), index=np.linspace(0, np.pi/2, self.n_theta), columns=np.linspace(0, 1.0, self.n_steps))
 
+    def get_data(self):
+        """Get general data with also last stable orbit position.
+        
+        Returns
+        -------
+        tuple of 5 ndarrays
+            x, y, px, py, times, lost boolean
+        """
+        data = self.engine.get_data()
+        for coso in data:
+            coso = coso.reshape((self.n_theta, self.n_steps))
+        return np.array(data[0]), np.array(data[1]), np.array(data[2]), np.array(data[3]), np.array(data[4]), np.array(data[5])
+
 
 class henon_grid(object):
     def __init__(self, n_x, n_y, epsilon):
@@ -118,6 +131,19 @@ class henon_grid(object):
             2d matrix of the times.
         """
         return self.times.reshape((self.n_x, self.n_y))
+
+    def get_data(self):
+        """Get general data with also last stable orbit position.
+        
+        Returns
+        -------
+        tuple of 5 ndarrays
+            x, y, px, py, times, lost boolean
+        """
+        data = self.engine.get_data()
+        for coso in data:
+            coso = coso.reshape((self.n_x, self.n_y))
+        return np.array(data[0]), np.array(data[1]), np.array(data[2]), np.array(data[3]), np.array(data[4]), np.array(data[5])
 
 
 class henon_scan(object):
@@ -181,3 +207,13 @@ class henon_scan(object):
         """
         return self.x0, self.y0, self.times
 
+    def get_data(self):
+        """Get general data with also last stable orbit position.
+        
+        Returns
+        -------
+        tuple of 5 ndarrays
+            x, y, px, py, times, lost boolean
+        """        
+        data = self.engine.get_data()
+        return np.array(data[0]), np.array(data[1]), np.array(data[2]), np.array(data[3]), np.array(data[4]), np.array(data[5])
