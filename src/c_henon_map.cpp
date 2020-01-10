@@ -44,7 +44,7 @@ template <typename Tuple> __host__ __device__ void henon_map::operator()(Tuple t
     double temp1;
     double temp2;
 
-    if (isnan(thrust::get<0>(t)))
+    if (std::isnan(thrust::get<0>(t)))
     {
         return;
     }
