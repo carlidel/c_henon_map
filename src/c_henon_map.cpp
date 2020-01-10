@@ -44,6 +44,12 @@ template <typename Tuple> __host__ __device__ void henon_map::operator()(Tuple t
     double temp1;
     double temp2;
 
+    if (thrust::get<0>(t) == 0.0 && thrust::get<1>(t) == 0.0 && thrust::get<2>(t) == 0.0 && thrust::get<3>(t) == 0.0)
+    {
+        thrust::get<4>(t) += n_iterations;
+        return;
+    }
+
     if (std::isnan(thrust::get<0>(t)))
     {
         return;
@@ -65,10 +71,10 @@ template <typename Tuple> __host__ __device__ void henon_map::operator()(Tuple t
         if (thrust::get<0>(t) * thrust::get<0>(t) + thrust::get<2>(t) * thrust::get<2>(t) > limit || std::isnan(thrust::get<0>(t)))
         {
             // Particle lost!
-            thrust::get<0>(t) = nan("");
-            thrust::get<1>(t) = nan("");
-            thrust::get<2>(t) = nan("");
-            thrust::get<3>(t) = nan("");
+            thrust::get<0>(t) = std::numeric_limits<double>::quiet_NaN();
+            thrust::get<1>(t) = std::numeric_limits<double>::quiet_NaN();
+            thrust::get<2>(t) = std::numeric_limits<double>::quiet_NaN();
+            thrust::get<3>(t) = std::numeric_limits<double>::quiet_NaN();
             return;
         }
 

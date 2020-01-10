@@ -7,6 +7,7 @@
 #include <cmath>
 #include <string>
 #include <tuple>
+#include <limits>
 
 #if THRUST_DEVICE_SYSTEM != THRUST_DEVICE_SYSTEM_OMP
 #include <cuda.h>

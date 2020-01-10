@@ -4,7 +4,7 @@ import scipy as sc
 import scipy.integrate as integrate
 import pandas as pd
 
-import c_henon_map as cpp_hm
+from . import c_henon_map as cpp_hm
 
 class henon_radial(object):
     def __init__(self, n_theta, n_steps, epsilon):
