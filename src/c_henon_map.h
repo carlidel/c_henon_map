@@ -22,6 +22,7 @@
 #include <thrust/functional.h>
 #include <thrust/iterator/zip_iterator.h>
 #include <thrust/for_each.h>
+#include <thrust/tuple.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846264338327950288
@@ -157,6 +158,26 @@ public:
     void reset();
     std::tuple<std::vector<double>, std::vector<double>, std::vector<unsigned int>> compute(unsigned int kernel_iterations, unsigned int block_iterations = 1);
     std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>, std::vector<unsigned int>, std::vector<bool>> get_data();
+};
+
+class henon_track
+{
+public:
+    double x0, y0, px0, py0;
+    std::vector<double> x, y, px, py;
+    unsigned int T;
+
+    henon_map functor;
+
+    double epsilon;
+
+    henon_track();
+    henon_track(double _x0, double _y0, double _px0, double _py0, double _epsilon);
+    ~henon_track();
+
+    void reset();
+    std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>> compute(unsigned int iterations);
+    std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>> get_data();
 };
 
 #endif //C_HENON_MAP_H

@@ -217,3 +217,92 @@ class henon_scan(object):
         """        
         data = self.engine.get_data()
         return np.array(data[0]), np.array(data[1]), np.array(data[2]), np.array(data[3]), np.array(data[4]), np.array(data[5])
+
+
+class henon_track(object):
+    def __init__(self, x0, y0, px0, py0, epsilon):
+        """init an henon full tracking object
+        
+        Parameters
+        ----------
+        object : self
+            self
+        x0 : float
+            x starting point
+        y0 : float
+            y starting point
+        px0 : float
+            px starting point
+        py0 : float
+            py starting point
+        epsilon : float
+            modulation intensity (see references)
+        """        
+        self.x0 = x0
+        self.y0 = y0
+        self.px0 = px0
+        self.py0 = py0
+        self.epsilon = epsilon
+
+        self.engine = cpp_hm.henon_scan(x0, y0, px0, py0, epsilon)
+        self.times = 0
+
+    def reset(self):
+        """Resets the engine.
+        """        
+        self.engine.reset()
+        self.times = 0
+        
+    def compute(self, iterations):
+        """compute the tracking
+        
+        Parameters
+        ----------
+        iterations : unsigned int
+            number of iterations
+        
+        Returns
+        -------
+        tuple of ndarrays
+            (x, y, px, py)
+        """        
+        self.data = self.engine.compute(iterations)
+        self.times += iterations
+        return np.asarray(self.data[0]), np.asarray(self.data[1]), np.asarray(self.data[2]), np.asarray(self.data[3])
+
+    def get_data(self):
+        """Get the data
+        
+        Returns
+        -------
+        tuple of ndarrays
+            (x, y, px, py)
+        """        
+        self.data = self.engine.get_data()
+        return np.asarray(self.data[0]), np.asarray(self.data[1]), np.asarray(self.data[2]), np.asarray(self.data[3])
+
+
+def cartesian_to_polar_4d(x, y, px, py):
+    """Convert a 4d cartesian point to a 4d polar variable point.
+    
+    Parameters
+    ----------
+    x : ndarray
+        ipse dixit
+    y : ndarray
+        ipse dixit
+    px : ndarray
+        ipse dixit
+    py : ndarray
+        ipse dixit
+    
+    Returns
+    -------
+    tuple of ndarray
+        (r, alpha, theta1, theta2)
+    """    
+    r = np.sqrt(np.power(x, 2) + np.power(y, 2) + np.power(px, 2) + np.power(py, 2))
+    theta1 = np.arctan2(px, x)
+    theta2 = np.arctan2(py, y)
+    alpha = np.arctan2(np.sqrt(y * y + py * py), np.sqrt(x * x + px * px))
+    return r, alpha, theta1, theta2

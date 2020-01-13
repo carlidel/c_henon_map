@@ -376,3 +376,59 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::v
 
     return std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>, std::vector<unsigned int>, std::vector<bool>> (x, y, px, py, t, lost);
 }
+
+// henon_track
+
+henon_track::henon_track() {}
+
+henon_track::henon_track(double _x0, double _y0, double _px0, double _py0, double _epsilon) : x0(_x0), y0(_y0), px0(_px0), py0(_py0), epsilon(_epsilon), functor(1, _epsilon)
+{
+    T = 0;
+    x.push_back(x0);
+    y.push_back(y0);
+    px.push_back(px0);
+    py.push_back(py0);
+}
+
+henon_track::~henon_track() {}
+
+void henon_track::reset()
+{
+    T = 0;
+    x.clear();
+    y.clear();
+    px.clear();
+    py.clear();
+    x.push_back(x0);
+    y.push_back(y0);
+    px.push_back(px0);
+    py.push_back(py0);
+}
+
+std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>> henon_track::compute(unsigned int iterations)
+{
+    thrust::tuple<double, double, double, double, unsigned int, bool> t(x.back(), px.back(), y.back(), py.back(), 0, false);
+
+    x.reserve(x.size() + iterations);
+    px.reserve(x.size() + iterations);
+    y.reserve(x.size() + iterations);
+    py.reserve(x.size() + iterations);
+
+    for (unsigned int i = 0; i < iterations; i++)
+    {
+        functor(t);
+        x.push_back(thrust::get<0>(t));
+        px.push_back(thrust::get<1>(t));
+        y.push_back(thrust::get<2>(t));
+        py.push_back(thrust::get<3>(t));
+        thrust::get<4>(t) = 0;
+        thrust::get<5>(t) = false;
+        T += 1;
+    }
+    return std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>>(x, y, px, py);
+}
+
+std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>> henon_track::get_data()
+{
+    return std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>>(x, y, px, py);
+}

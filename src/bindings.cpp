@@ -24,4 +24,10 @@ PYBIND11_MODULE(c_henon_map, m)
         .def("reset", &henon_scan::reset)
         .def("compute", &henon_scan::compute)
         .def("get_data", &henon_scan::get_data);
+
+    py::class_<henon_track>(m, "henon_track")
+        .def(py::init<double, double, double, double, double>())
+        .def("reset", &henon_track::reset)
+        .def("compute", &henon_track::compute)
+        .def("get_data", &henon_track::get_data);
 }
