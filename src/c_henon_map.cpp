@@ -446,8 +446,6 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::v
         px.push_back(thrust::get<1>(t));
         y.push_back(thrust::get<2>(t));
         py.push_back(thrust::get<3>(t));
-        thrust::get<4>(t) = 0;
-        thrust::get<5>(t) = false;
         T += 1;
     }
     std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>> tup (x, y, px, py);
