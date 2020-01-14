@@ -244,7 +244,7 @@ class henon_track(object):
         self.py0 = py0
         self.epsilon = epsilon
 
-        self.engine = cpp_hm.henon_scan(x0, y0, px0, py0, epsilon)
+        self.engine = cpp_hm.henon_track(x0, y0, px0, py0, epsilon)
         self.times = 0
 
     def reset(self):
