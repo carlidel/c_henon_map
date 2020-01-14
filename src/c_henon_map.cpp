@@ -184,6 +184,13 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::v
     std::vector<unsigned int> t;
     std::vector<bool> lost;
 
+    x.resize(X.size());
+    y.resize(Y.size());
+    px.resize(P_X.size());
+    py.resize(P_Y.size());
+    t.resize(T.size());
+    lost.resize(LOST.size());
+    
     thrust::copy(X.begin(), X.end(), x.begin());
     thrust::copy(Y.begin(), Y.end(), y.begin());
     thrust::copy(P_X.begin(), P_X.end(), px.begin());
@@ -191,7 +198,8 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::v
     thrust::copy(T.begin(), T.end(), t.begin());
     thrust::copy(LOST.begin(), LOST.end(), lost.begin());
 
-    return std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>, std::vector<unsigned int>, std::vector<bool>>(x, y, px, py, t, lost);
+    std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>, std::vector<unsigned int>, std::vector<bool>> tup (x, y, px, py, t, lost);
+    return tup;
 }
 
 // henon_grid
@@ -284,6 +292,13 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::v
     std::vector<unsigned int> t;
     std::vector<bool> lost;
 
+    x.resize(X.size());
+    y.resize(Y.size());
+    px.resize(P_X.size());
+    py.resize(P_Y.size());
+    t.resize(T.size());
+    lost.resize(LOST.size());
+
     thrust::copy(X.begin(), X.end(), x.begin());
     thrust::copy(Y.begin(), Y.end(), y.begin());
     thrust::copy(P_X.begin(), P_X.end(), px.begin());
@@ -291,7 +306,8 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::v
     thrust::copy(T.begin(), T.end(), t.begin());
     thrust::copy(LOST.begin(), LOST.end(), lost.begin());
 
-    return std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>, std::vector<unsigned int>, std::vector<bool>>(x, y, px, py, t, lost);
+    std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>, std::vector<unsigned int>, std::vector<bool>> tup (x, y, px, py, t, lost);
+    return tup;
 }
 
 // henon_scan
@@ -355,7 +371,8 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<unsigned int>> 
     std::vector<unsigned int> times(X.size());
     thrust::copy(T.begin(), T.end(), times.begin());
 
-    return std::tuple<std::vector<double>, std::vector<double>, std::vector<unsigned int>> (x0, y0, times);
+    std::tuple<std::vector<double>, std::vector<double>, std::vector<unsigned int>> tup (x0, y0, times);
+    return tup;
 }
 
 std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>, std::vector<unsigned int>, std::vector<bool>> henon_scan::get_data()
@@ -367,6 +384,13 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::v
     std::vector<unsigned int> t;
     std::vector<bool> lost;
 
+    x.resize(X.size());
+    y.resize(Y.size());
+    px.resize(P_X.size());
+    py.resize(P_Y.size());
+    t.resize(T.size());
+    lost.resize(LOST.size());
+
     thrust::copy(X.begin(), X.end(), x.begin());
     thrust::copy(Y.begin(), Y.end(), y.begin());
     thrust::copy(P_X.begin(), P_X.end(), px.begin());
@@ -374,7 +398,8 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::v
     thrust::copy(T.begin(), T.end(), t.begin());
     thrust::copy(LOST.begin(), LOST.end(), lost.begin());
 
-    return std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>, std::vector<unsigned int>, std::vector<bool>> (x, y, px, py, t, lost);
+    std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>, std::vector<unsigned int>, std::vector<bool>> tup (x, y, px, py, t, lost);
+    return tup;
 }
 
 // henon_track
@@ -425,10 +450,12 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::v
         thrust::get<5>(t) = false;
         T += 1;
     }
-    return std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>>(x, y, px, py);
+    std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>> tup (x, y, px, py);
+    return tup;
 }
 
 std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>> henon_track::get_data()
 {
-    return std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>>(x, y, px, py);
+    std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>> tup (x, y, px, py);
+    return tup;
 }
