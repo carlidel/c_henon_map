@@ -302,7 +302,7 @@ def cartesian_to_polar_4d(x, y, px, py):
         (r, alpha, theta1, theta2)
     """    
     r = np.sqrt(np.power(x, 2) + np.power(y, 2) + np.power(px, 2) + np.power(py, 2))
-    theta1 = np.arctan2(px, x)
-    theta2 = np.arctan2(py, y)
-    alpha = np.arctan2(np.sqrt(y * y + py * py), np.sqrt(x * x + px * px))
+    theta1 = np.arctan2(px, x) + np.pi
+    theta2 = np.arctan2(py, y) + np.pi
+    alpha = np.arctan2(np.sqrt(y * y + py * py), np.sqrt(x * x + px * px)) + np.pi
     return r, alpha, theta1, theta2
