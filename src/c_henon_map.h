@@ -82,12 +82,12 @@ struct henon_map
     const double omega_y0 = 0.201 * 2 * M_PI;
 
     double epsilon;
-    double limit = 10000.0;
+    double limit = 100.0;
 
     unsigned int n_iterations;
 
     henon_map();
-    henon_map(unsigned int _n_iterations, double _epsilon = 0.0, double _limit = 100000.0);
+    henon_map(unsigned int _n_iterations, double _epsilon = 0.0, double _limit = 100.0);
 
     template <typename Tuple> __host__ __device__ void operator()(Tuple t);
 };
