@@ -168,8 +168,6 @@ public:
     std::vector<double> x, y, px, py;
     unsigned int T;
 
-    henon_map functor;
-
     double epsilon;
 
     henon_track();

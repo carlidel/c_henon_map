@@ -278,6 +278,7 @@ std::vector<unsigned int> henon_grid::compute(unsigned int kernel_iterations, un
         cudaDeviceSynchronize();
 #endif
     }
+    
     std::vector<unsigned int> times(n_x * n_y);
     thrust::copy(T.begin(), T.end(), times.begin());
     return times;
@@ -314,7 +315,7 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::v
 
 henon_scan::henon_scan() {}
 
-henon_scan::henon_scan(std::vector<double> _x0, std::vector<double> _y0, std::vector<double> _px0, std::vector<double> _py0, double _epsilon) : x0(_x0), y0(_y0), px0(_px0), py0(_py0)
+henon_scan::henon_scan(std::vector<double> _x0, std::vector<double> _y0, std::vector<double> _px0, std::vector<double> _py0, double _epsilon) : x0(_x0), y0(_y0), px0(_px0), py0(_py0), epsilon(_epsilon)
 {
 #if THRUST_DEVICE_SYSTEM != THRUST_DEVICE_SYSTEM_OMP
     cudaSetDevice(1);
@@ -324,19 +325,13 @@ henon_scan::henon_scan(std::vector<double> _x0, std::vector<double> _y0, std::ve
     Y = y0;
     X_0 = x0;
     Y_0 = y0;
-
-    P_X.resize(x0.size());
-    P_Y.resize(x0.size());
-    P_X_0.resize(x0.size());
-    P_Y_0.resize(x0.size());
-
-    thrust::fill(P_X.begin(), P_X.end(), 0.0);
-    thrust::fill(P_Y.begin(), P_Y.end(), 0.0);
-    thrust::fill(P_X_0.begin(), P_X_0.end(), 0.0);
-    thrust::fill(P_Y_0.begin(), P_Y_0.end(), 0.0);
+    P_X = px0;
+    P_Y = py0;
+    P_X_0 = px0;
+    P_Y_0 = py0; 
 
     T.resize(x0.size());
-    thrust::fill(T.begin(), T.end(), 0.0);
+    thrust::fill(T.begin(), T.end(), 0);
 
     LOST.resize(x0.size());
     thrust::fill(LOST.begin(), LOST.end(), false);
@@ -351,7 +346,7 @@ void henon_scan::reset()
     P_X = P_X_0;
     P_Y = P_Y_0;
 
-    thrust::fill(T.begin(), T.end(), 0.0);
+    thrust::fill(T.begin(), T.end(), 0);
     thrust::fill(LOST.begin(), LOST.end(), false);
 }
 
@@ -406,7 +401,7 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::v
 
 henon_track::henon_track() {}
 
-henon_track::henon_track(double _x0, double _y0, double _px0, double _py0, double _epsilon) : x0(_x0), y0(_y0), px0(_px0), py0(_py0), epsilon(_epsilon), functor(1, _epsilon)
+henon_track::henon_track(double _x0, double _y0, double _px0, double _py0, double _epsilon) : x0(_x0), y0(_y0), px0(_px0), py0(_py0), epsilon(_epsilon)
 {
     T = 0;
     x.push_back(x0);
@@ -432,28 +427,30 @@ void henon_track::reset()
 
 std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>> henon_track::compute(unsigned int iterations)
 {
+    henon_map temp_hm(1, epsilon);
+
     thrust::host_vector<double> X, P_X, Y, P_Y;
     thrust::host_vector<unsigned int> TT;
     thrust::host_vector<bool> LOST;
-
-    X.push_back(x.back());
-    Y.push_back(y.back());
-    P_X.push_back(px.back());
-    P_Y.push_back(py.back());
-    TT.push_back(0);
-    LOST.push_back(false);
 
     x.reserve(x.size() + iterations);
     px.reserve(x.size() + iterations);
     y.reserve(x.size() + iterations);
     py.reserve(x.size() + iterations);
 
+    X.push_back(x[0]);
+    Y.push_back(y[0]);
+    P_X.push_back(px[0]);
+    P_Y.push_back(py[0]);
+    TT.push_back(0);
+    LOST.push_back(false);
+
     for (unsigned int i = 0; i < iterations; i++)
     {
         thrust::for_each(
             thrust::make_zip_iterator(thrust::make_tuple(X.begin(), P_X.begin(), Y.begin(), P_Y.begin(), TT.begin(), LOST.begin())),
             thrust::make_zip_iterator(thrust::make_tuple(X.end(), P_X.end(), Y.end(), P_Y.end(), TT.end(), LOST.end())),
-            functor);
+            temp_hm);
 #if THRUST_DEVICE_SYSTEM != THRUST_DEVICE_SYSTEM_OMP
         cudaDeviceSynchronize();
 #endif
@@ -461,10 +458,18 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::v
         px.push_back(P_X[0]);
         y.push_back(Y[0]);
         py.push_back(P_Y[0]);
-        T += 1;
+
         if (LOST[0])
             break;
     }
+
+    X.clear();
+    Y.clear();
+    P_X.clear();
+    P_Y.clear();
+    TT.clear();
+    LOST.clear();
+
     std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>> tup (x, y, px, py);
     return tup;
 }
