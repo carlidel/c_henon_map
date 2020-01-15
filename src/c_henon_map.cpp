@@ -432,7 +432,16 @@ void henon_track::reset()
 
 std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>> henon_track::compute(unsigned int iterations)
 {
-    thrust::tuple<double, double, double, double, unsigned int, bool> t(x.back(), px.back(), y.back(), py.back(), 0, false);
+    thrust::device_vector<double> X, P_X, Y, P_Y;
+    thrust::device_vector<unsigned int> TT;
+    thrust::device_vector<bool> LOST;
+
+    X.push_back(x.back());
+    Y.push_back(y.back());
+    P_X.push_back(px.back());
+    P_Y.push_back(py.back());
+    TT.push_back(0);
+    LOST.push_back(false);
 
     x.reserve(x.size() + iterations);
     px.reserve(x.size() + iterations);
@@ -441,11 +450,17 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::v
 
     for (unsigned int i = 0; i < iterations; i++)
     {
-        functor(t);
-        x.push_back(thrust::get<0>(t));
-        px.push_back(thrust::get<1>(t));
-        y.push_back(thrust::get<2>(t));
-        py.push_back(thrust::get<3>(t));
+        thrust::for_each(
+            thrust::make_zip_iterator(thrust::make_tuple(X.begin(), P_X.begin(), Y.begin(), P_Y.begin(), TT.begin(), LOST.begin())),
+            thrust::make_zip_iterator(thrust::make_tuple(X.end(), P_X.end(), Y.end(), P_Y.end(), TT.end(), LOST.end())),
+            functor);
+#if THRUST_DEVICE_SYSTEM != THRUST_DEVICE_SYSTEM_OMP
+        cudaDeviceSynchronize();
+#endif
+        x.push_back(X[0]);
+        px.push_back(P_X[0]);
+        y.push_back(Y[0]);
+        py.push_back(P_Y[0]);
         T += 1;
     }
     std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>> tup (x, y, px, py);
