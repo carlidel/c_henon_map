@@ -462,6 +462,8 @@ std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::v
         y.push_back(Y[0]);
         py.push_back(P_Y[0]);
         T += 1;
+        if (LOST[0])
+            break;
     }
     std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>> tup (x, y, px, py);
     return tup;
