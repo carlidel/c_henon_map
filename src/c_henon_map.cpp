@@ -432,9 +432,9 @@ void henon_track::reset()
 
 std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>> henon_track::compute(unsigned int iterations)
 {
-    thrust::device_vector<double> X, P_X, Y, P_Y;
-    thrust::device_vector<unsigned int> TT;
-    thrust::device_vector<bool> LOST;
+    thrust::host_vector<double> X, P_X, Y, P_Y;
+    thrust::host_vector<unsigned int> TT;
+    thrust::host_vector<bool> LOST;
 
     X.push_back(x.back());
     Y.push_back(y.back());
