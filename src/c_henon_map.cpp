@@ -77,7 +77,7 @@ template <typename Tuple> __host__ __device__ void henon_map::operator()(Tuple t
         v[2] = cosy * thrust::get<2>(t) + siny * temp2;
         v[3] = -siny * thrust::get<2>(t) + cosy * temp2;
 
-        if (v[0] * v[0] + v[2] * v[2] > limit)
+        if (v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3] > limit)
         {
             thrust::get<5>(t) = true;
             return;
