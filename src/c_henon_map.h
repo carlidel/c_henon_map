@@ -78,8 +78,8 @@ struct henon_map
         10 * (2 * M_PI / 868.12),
         12 * (2 * M_PI / 868.12)
     };
-    const double omega_x0 = 0.168 * 2 * M_PI;
-    const double omega_y0 = 0.201 * 2 * M_PI;
+    double omega_x0;
+    double omega_y0;
 
     double epsilon;
     double limit = 100.0;
@@ -87,10 +87,57 @@ struct henon_map
     unsigned int n_iterations;
 
     henon_map();
-    henon_map(unsigned int _n_iterations, double _epsilon = 0.0, double _limit = 100.0);
+    henon_map(unsigned int _n_iterations, double _epsilon = 0.0, double _limit = 100.0, double _om_x0 = 0.168, double _om_y0 = 0.201);
 
     template <typename Tuple> __host__ __device__ void operator()(Tuple t);
 };
+
+// Radial Henon Functor
+
+struct radial_henon_functor
+{
+    const double epsilon_k[7] =
+        {
+            1.000e-4,
+            0.218e-4,
+            0.708e-4,
+            0.254e-4,
+            0.100e-4,
+            0.078e-4,
+            0.218e-4};
+    const double Omega_k[7] =
+        {
+            1 * (2 * M_PI / 868.12),
+            2 * (2 * M_PI / 868.12),
+            3 * (2 * M_PI / 868.12),
+            6 * (2 * M_PI / 868.12),
+            7 * (2 * M_PI / 868.12),
+            10 * (2 * M_PI / 868.12),
+            12 * (2 * M_PI / 868.12)};
+    double omega_x0;
+    double omega_y0;
+
+    double epsilon;
+    double limit = 100.0;
+
+    double dr;
+
+    radial_henon_functor();
+    radial_henon_functor(double _dr, double _epsilon = 0.0, double _limit = 100.0, double _om_x0 = 0.168, double _om_y0 = 0.201);
+
+    template <typename Tuple> __host__ __device__ void operator()(Tuple t);
+};
+
+// Dummy functor
+
+struct dummy_functor
+{
+    dummy_functor();
+    
+    template <typename Tuple> __host__ __device__ void operator()(Tuple t);
+};
+
+//
 
 class henon_radial
 {
@@ -177,6 +224,29 @@ public:
     void reset();
     std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>> compute(unsigned int iterations);
     std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>> get_data();
+};
+
+class radial_scan
+{
+public:
+    std::vector<double> alpha, theta1, theta2;
+
+    double dr;
+    double epsilon;
+    double omx, omy;
+
+    thrust::device_vector<double> ALPHA, THETA1, THETA2;
+    thrust::device_vector<unsigned int> STEP, MAX_ITERATIONS;
+    
+    std::vector<std::vector<double>> radiuses;
+
+    radial_scan();
+    radial_scan(double _dr, std::vector<double> _alpha, std::vector<double> _theta1, std::vector<double> _theta2, double _epsilon, double _omx, double _omy);
+
+    void reset();
+    std::vector<std::vector<double>> compute(std::vector<unsigned int> time_samples);
+    std::vector<std::vector<double>> dummy_compute(std::vector<unsigned int> time_samples);
+    std::vector<std::vector<double>> get_data();
 };
 
 #endif //C_HENON_MAP_H

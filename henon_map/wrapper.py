@@ -282,6 +282,90 @@ class henon_track(object):
         return np.asarray(self.data[0]), np.asarray(self.data[1]), np.asarray(self.data[2]), np.asarray(self.data[3])
 
 
+class radial_scan(object):
+    def __init__(self, dr, alpha, theta1, theta2, epsilon, omx=0.168, omy=0.201):
+        """init an henon optimized radial tracker!
+        
+        Parameters
+        ----------
+        object : self
+            self
+        dr : float
+            radial step
+        alpha : ndarray
+            alpha angles to consider (raw)
+        theta1 : ndarray
+            theta1 angles to consider (raw)
+        theta2 : ndarray
+            theta2 angles to consider (raw)
+        epsilon : float
+            intensity of modulation
+        omx : float, optional
+            x omega, by default 0.168
+        omy : float, optional
+            y omega, by default 0.201
+        """        
+        assert alpha.size == theta1.size
+        assert alpha.size == theta2.size
+        self.dr = dr
+        self.alpha = alpha
+        self.theta1 = theta1
+        self.theta2 = theta2
+        self.epsilon = epsilon
+        self.omx = omx
+        self.omy = omy
+        self.sample_list = np.empty(0)
+        self.engine = cpp_hm.radial_scan(dr, alpha, theta1, theta2, epsilon, omx, omy)
+
+    def reset(self):
+        """Resets the engine.
+        """        
+        self.sample_list = np.empty(0)
+        self.engine.reset()
+
+    def compute(self, sample_list):
+        """Compute the tracking
+        
+        Parameters
+        ----------
+        sample_list : ndarray
+            iterations to consider
+        
+        Returns
+        -------
+        ndarray
+            radius scan results
+        """        
+        self.sample_list = np.append(self.sample_list, sample_list)
+        return np.asarray(self.engine.compute(sample_list))
+
+    def dummy_compute(self, sample_list):
+        """Compute a dummy tracking
+        
+        Parameters
+        ----------
+        sample_list : ndarray
+            iterations to consider
+        
+        Returns
+        -------
+        ndarray
+            radius scan dummy results
+        """        
+        self.sample_list = np.append(self.sample_list, sample_list)
+        return np.asarray(self.engine.dummy_compute(sample_list))
+
+    def get_data(self):
+        """Get the data
+        
+        Returns
+        -------
+        ndarray
+            the data
+        """        
+        return np.asarray(self.engine.get_data())
+
+
 def cartesian_to_polar_4d(x, y, px, py):
     """Convert a 4d cartesian point to a 4d polar variable point.
     

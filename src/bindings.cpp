@@ -30,4 +30,11 @@ PYBIND11_MODULE(c_henon_map, m)
         .def("reset", &henon_track::reset)
         .def("compute", &henon_track::compute)
         .def("get_data", &henon_track::get_data);
+
+    py::class_<radial_scan>(m, "radial_scan")
+        .def(py::init<double, std::vector<double>, std::vector<double>, std::vector<double>, double, double, double>())
+        .def("reset", &radial_scan::reset)
+        .def("compute", &radial_scan::compute)
+        .def("dummy_compute", &radial_scan::dummy_compute)
+        .def("get_data", &radial_scan::get_data);
 }
