@@ -619,7 +619,7 @@ std::vector<std::vector<double>> radial_scan::compute(std::vector<unsigned int> 
         }
         else
         {
-            pybind11::print(i, "/", ALPHA.size())
+            pybind11::print(i, "/", ALPHA.size());
         }
         
         unsigned int endpoint = i + batch < ALPHA.size() ? i + batch : ALPHA.size();
