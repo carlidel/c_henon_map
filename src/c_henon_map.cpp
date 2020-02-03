@@ -602,6 +602,8 @@ std::vector<std::vector<double>> radial_scan::compute(std::vector<unsigned int> 
     std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
 
+    std::chrono::steady_clock::time_point mid = std::chrono::steady_clock::now();
+
     double ETA;
     unsigned int mins, hours, secs;
 
@@ -609,17 +611,14 @@ std::vector<std::vector<double>> radial_scan::compute(std::vector<unsigned int> 
     pybind11::print("BEGIN!");
     for (unsigned int i = 0; i < ALPHA.size(); i += batch)
     {
-        if(i != 0)
+        if (i != 0 && std::chrono::duration_cast<std::chrono::seconds>(end - mid).count() > 15)
         {
+            mid = std::chrono::steady_clock::now();
             ETA = std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() * double((ALPHA.size() - i)) / i;
             secs = fmod(ETA, 60);
             mins = int(ETA / 60) % 60;
             hours = mins / 60;
             pybind11::print(i, "/", ALPHA.size(), "; ETA:", hours, "h", mins, "m", secs, "s");
-        }
-        else
-        {
-            pybind11::print(i, "/", ALPHA.size());
         }
         
         unsigned int endpoint = i + batch < ALPHA.size() ? i + batch : ALPHA.size();
@@ -661,11 +660,20 @@ std::vector<std::vector<double>> radial_scan::dummy_compute(std::vector<unsigned
     unsigned int batch = ALPHA.size();
 #endif
 
+    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+
+    std::chrono::steady_clock::time_point mid = std::chrono::steady_clock::now();
+
     dummy_functor functor;
     pybind11::print("BEGIN!");
     for (unsigned int i = 0; i < ALPHA.size(); i += batch)
     {
-        pybind11::print(i, "/", ALPHA.size()); 
+        if (i != 0 && std::chrono::duration_cast<std::chrono::seconds>(end - mid).count() > 15)
+        {
+            mid = std::chrono::steady_clock::now();
+            pybind11::print(i, "/", ALPHA.size());
+        }
         unsigned int endpoint = i + batch < ALPHA.size() ? i + batch : ALPHA.size();
         for (auto t : time_samples)
         {
@@ -692,6 +700,7 @@ std::vector<std::vector<double>> radial_scan::dummy_compute(std::vector<unsigned
                 radiuses[j].push_back(STEP[j] * dr);
             }
         }
+        end = std::chrono::steady_clock::now();
     }
     return radiuses;
 }
