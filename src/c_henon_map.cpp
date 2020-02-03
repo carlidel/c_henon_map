@@ -594,61 +594,103 @@ void radial_scan::reset()
 
 std::vector<std::vector<double>> radial_scan::compute(std::vector<unsigned int> time_samples)
 {
-    radial_henon_functor functor(dr, epsilon, 100.0, omx, omy);
-    for (auto t : time_samples)
-    {
-        thrust::fill(MAX_ITERATIONS.begin(), MAX_ITERATIONS.end(), t);
-        thrust::for_each(
-            thrust::make_zip_iterator(thrust::make_tuple(
-                ALPHA.begin(),
-                THETA1.begin(),
-                THETA2.begin(),
-                STEP.begin(),
-                MAX_ITERATIONS.begin())),
-            thrust::make_zip_iterator(thrust::make_tuple(
-                ALPHA.end(),
-                THETA1.end(),
-                THETA2.end(),
-                STEP.end(),
-                MAX_ITERATIONS.end())),
-            functor);
-#if THRUST_DEVICE_SYSTEM != THRUST_DEVICE_SYSTEM_OMP
-        cudaDeviceSynchronize();
+#if THRUST_DEVICE_SYSTEM == THRUST_DEVICE_SYSTEM_OMP
+    unsigned int batch = 32;
+#elif THRUST_DEVICE_SYSTEM == THRUST_DEVICE_SYSTEM_CUDA
+    unsigned int batch = ALPHA.size();
 #endif
-        for(unsigned int i = 0; i < alpha.size(); i++)
+    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+
+    double ETA;
+    unsigned int mins, hours, secs;
+
+    radial_henon_functor functor(dr, epsilon, 100.0, omx, omy);
+    pybind11::print("BEGIN!");
+    for (unsigned int i = 0; i < ALPHA.size(); i += batch)
+    {
+        if(i != 0)
         {
-            radiuses[i].push_back(STEP[i] * dr);
+            ETA = std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() * double((ALPHA.size() - i)) / i;
+            secs = fmod(ETA, 60);
+            mins = int(ETA / 60) % 60;
+            hours = mins / 60;
+            pybind11::print(i, "/", ALPHA.size(), "; ETA:", hours, "h", mins, "m", secs, "s");
         }
+        else
+        {
+            pybind11::print(i, "/", ALPHA.size())
+        }
+        
+        unsigned int endpoint = i + batch < ALPHA.size() ? i + batch : ALPHA.size();
+        for (auto t : time_samples)
+        {
+            thrust::fill(MAX_ITERATIONS.begin(), MAX_ITERATIONS.end(), t);
+            thrust::for_each(
+                thrust::make_zip_iterator(thrust::make_tuple(
+                    ALPHA.begin() + i,
+                    THETA1.begin() + i,
+                    THETA2.begin() + i,
+                    STEP.begin() + i,
+                    MAX_ITERATIONS.begin())),
+                thrust::make_zip_iterator(thrust::make_tuple(
+                    ALPHA.begin() + endpoint,
+                    THETA1.begin() + endpoint,
+                    THETA2.begin() + endpoint,
+                    STEP.begin() + endpoint,
+                    MAX_ITERATIONS.begin() + endpoint)),
+                functor);
+#if THRUST_DEVICE_SYSTEM == THRUST_DEVICE_SYSTEM_CUDA
+            cudaDeviceSynchronize();
+#endif
+            for (unsigned int j = i; j < endpoint; j++)
+            {
+                radiuses[j].push_back(STEP[j] * dr);
+            }
+        }
+        end = std::chrono::steady_clock::now();
     }
     return radiuses;
 }
 
 std::vector<std::vector<double>> radial_scan::dummy_compute(std::vector<unsigned int> time_samples)
 {
-    dummy_functor functor;
-    for (auto t : time_samples)
-    {
-        thrust::fill(MAX_ITERATIONS.begin(), MAX_ITERATIONS.end(), t);
-        thrust::for_each(
-            thrust::make_zip_iterator(thrust::make_tuple(
-                ALPHA.begin(),
-                THETA1.begin(),
-                THETA2.begin(),
-                STEP.begin(),
-                MAX_ITERATIONS.begin())),
-            thrust::make_zip_iterator(thrust::make_tuple(
-                ALPHA.end(),
-                THETA1.end(),
-                THETA2.end(),
-                STEP.end(),
-                MAX_ITERATIONS.end())),
-            functor);
-#if THRUST_DEVICE_SYSTEM != THRUST_DEVICE_SYSTEM_OMP
-        cudaDeviceSynchronize();
+#if THRUST_DEVICE_SYSTEM == THRUST_DEVICE_SYSTEM_OMP
+    unsigned int batch = 32;
+#elif THRUST_DEVICE_SYSTEM == THRUST_DEVICE_SYSTEM_CUDA
+    unsigned int batch = ALPHA.size();
 #endif
-        for (unsigned int i = 0; i < alpha.size(); i++)
+
+    dummy_functor functor;
+    pybind11::print("BEGIN!");
+    for (unsigned int i = 0; i < ALPHA.size(); i += batch)
+    {
+        pybind11::print(i, "/", ALPHA.size()); 
+        unsigned int endpoint = i + batch < ALPHA.size() ? i + batch : ALPHA.size();
+        for (auto t : time_samples)
         {
-            radiuses[i].push_back(STEP[i] * dr);
+            thrust::fill(MAX_ITERATIONS.begin(), MAX_ITERATIONS.end(), t);
+            thrust::for_each(
+                thrust::make_zip_iterator(thrust::make_tuple(
+                    ALPHA.begin() + i,
+                    THETA1.begin() + i,
+                    THETA2.begin() + i,
+                    STEP.begin() + i,
+                    MAX_ITERATIONS.begin())),
+                thrust::make_zip_iterator(thrust::make_tuple(
+                    ALPHA.begin() + endpoint,
+                    THETA1.begin() + endpoint,
+                    THETA2.begin() + endpoint,
+                    STEP.begin() + endpoint,
+                    MAX_ITERATIONS.begin() + endpoint)),
+                functor);
+#if THRUST_DEVICE_SYSTEM == THRUST_DEVICE_SYSTEM_CUDA
+            cudaDeviceSynchronize();
+#endif
+            for (unsigned int j = i; j < endpoint; j++)
+            {
+                radiuses[j].push_back(STEP[j] * dr);
+            }
         }
     }
     return radiuses;

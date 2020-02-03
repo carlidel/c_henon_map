@@ -1,13 +1,14 @@
 #ifndef C_HENON_MAP_H
 #define C_HENON_MAP_H
 
-#include <iostream>
-#include <fstream>
+#include <pybind11/pybind11.h>
 #include <vector>
 #include <cmath>
 #include <string>
 #include <tuple>
 #include <limits>
+#include <algorithm>
+#include <chrono>
 
 #if THRUST_DEVICE_SYSTEM != THRUST_DEVICE_SYSTEM_OMP
 #include <cuda.h>
@@ -24,6 +25,7 @@
 #include <thrust/iterator/zip_iterator.h>
 #include <thrust/for_each.h>
 #include <thrust/tuple.h>
+
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846264338327950288
