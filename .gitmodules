@@ -1,0 +1,6 @@
+[submodule "cpu_henon_map/pybind11"]
+	path = cpu_henon_map/pybind11
+	url = https://github.com/pybind/pybind11.git
+[submodule "gpu_henon_map/pybind11"]
+	path = gpu_henon_map/pybind11
+	url = https://github.com/pybind/pybind11.git
