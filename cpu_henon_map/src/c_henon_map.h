@@ -1,7 +1,7 @@
 #ifndef C_HENON_MAP_H
 #define C_HENON_MAP_H
 
-#include <pybind11/pybind11.h>
+#include <iostream>
 #include <vector>
 #include <cmath>
 #include <string>
@@ -244,6 +244,7 @@ public:
 
     radial_scan();
     radial_scan(double _dr, std::vector<double> _alpha, std::vector<double> _theta1, std::vector<double> _theta2, double _epsilon, double _omx, double _omy);
+    ~radial_scan();
 
     void reset();
     std::vector<std::vector<double>> compute(std::vector<unsigned int> time_samples);

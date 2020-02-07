@@ -4,7 +4,8 @@ import scipy as sc
 import scipy.integrate as integrate
 import pandas as pd
 
-from . import c_henon_map as cpp_hm
+from . import cpu_henon_map as cpu_hm
+
 
 class henon_radial(object):
     def __init__(self, n_theta, n_steps, epsilon):
@@ -20,17 +21,17 @@ class henon_radial(object):
             number of positions to scan between 0 and 1
         epsilon : float
             intensity of the modulation (see references)
-        """        
+        """
         self.n_theta = n_theta
         self.n_steps = n_steps
         self.epsilon = epsilon
 
-        self.engine = cpp_hm.henon_radial(n_theta, n_steps, epsilon)
+        self.engine = cpu_hm.cpu_henon_radial(n_theta, n_steps, epsilon)
         self.times = np.array(self.engine.compute(0, 1))
 
     def reset(self):
         """Reset the engine to the initial conditions
-        """        
+        """
         self.engine.reset()
         self.times = self.engine.compute(0, 1)
         self.times = np.array(self.times)
@@ -47,7 +48,7 @@ class henon_radial(object):
         -------
         Dataframe
             Dataframe of the angle-distance times before particle loss.
-        """        
+        """
         self.times = self.engine.compute(n_iterations, 1)
         self.times = np.array(self.times)
         return pd.DataFrame(self.times.reshape((self.n_theta, self.n_steps)), index=np.linspace(0, np.pi/2, self.n_theta), columns=np.linspace(0, 1.0, self.n_steps))
@@ -59,7 +60,7 @@ class henon_radial(object):
         -------
         Dataframe
             Dataframe of the angle-distance times before particle loss.
-        """        
+        """
         return pd.DataFrame(self.times.reshape((self.n_theta, self.n_steps)), index=np.linspace(0, np.pi/2, self.n_theta), columns=np.linspace(0, 1.0, self.n_steps))
 
     def get_data(self):
@@ -95,7 +96,7 @@ class henon_grid(object):
         self.n_y = n_y
         self.epsilon = epsilon
 
-        self.engine = cpp_hm.henon_grid(n_x, n_y, epsilon)
+        self.engine = cpu_hm.cpu_henon_grid(n_x, n_y, epsilon)
         self.times = np.array(self.engine.compute(0, 1))
 
     def reset(self):
@@ -164,19 +165,19 @@ class henon_scan(object):
             py starting positions
         epsilon : float
             intensity of modulation (see references)
-        """        
+        """
         self.x0 = x0
         self.y0 = y0
         self.px0 = px0
         self.py0 = py0
         self.epsilon = epsilon
 
-        self.engine = cpp_hm.henon_scan(x0, y0, px0, py0, epsilon)
+        self.engine = cpu_hm.cpu_henon_scan(x0, y0, px0, py0, epsilon)
         self.times = np.array(self.engine.compute(0, 1)[2])
 
     def reset(self):
         """Reset the engine to the initial condition
-        """        
+        """
         self.engine.reset()
         self.times = np.array(self.engine.compute(0, 1)[2])
 
@@ -214,7 +215,7 @@ class henon_scan(object):
         -------
         tuple of 5 ndarrays
             x, y, px, py, times, lost boolean
-        """        
+        """
         data = self.engine.get_data()
         return np.array(data[0]), np.array(data[1]), np.array(data[2]), np.array(data[3]), np.array(data[4]), np.array(data[5])
 
@@ -237,22 +238,22 @@ class henon_track(object):
             py starting point
         epsilon : float
             modulation intensity (see references)
-        """        
+        """
         self.x0 = x0
         self.y0 = y0
         self.px0 = px0
         self.py0 = py0
         self.epsilon = epsilon
 
-        self.engine = cpp_hm.henon_track(x0, y0, px0, py0, epsilon)
+        self.engine = cpu_hm.cpu_henon_track(x0, y0, px0, py0, epsilon)
         self.times = 0
 
     def reset(self):
         """Resets the engine.
-        """        
+        """
         self.engine.reset()
         self.times = 0
-        
+
     def compute(self, iterations):
         """compute the tracking
         
@@ -265,7 +266,7 @@ class henon_track(object):
         -------
         tuple of ndarrays
             (x, y, px, py)
-        """        
+        """
         self.data = self.engine.compute(iterations)
         self.times += iterations
         return np.asarray(self.data[0]), np.asarray(self.data[1]), np.asarray(self.data[2]), np.asarray(self.data[3])
@@ -277,7 +278,7 @@ class henon_track(object):
         -------
         tuple of ndarrays
             (x, y, px, py)
-        """        
+        """
         self.data = self.engine.get_data()
         return np.asarray(self.data[0]), np.asarray(self.data[1]), np.asarray(self.data[2]), np.asarray(self.data[3])
 
@@ -304,7 +305,7 @@ class radial_scan(object):
             x omega, by default 0.168
         omy : float, optional
             y omega, by default 0.201
-        """        
+        """
         assert alpha.size == theta1.size
         assert alpha.size == theta2.size
         self.dr = dr
@@ -315,11 +316,12 @@ class radial_scan(object):
         self.omx = omx
         self.omy = omy
         self.sample_list = np.empty(0)
-        self.engine = cpp_hm.radial_scan(dr, alpha, theta1, theta2, epsilon, omx, omy)
+        self.engine = cpu_hm.cpu_radial_scan(
+            dr, alpha, theta1, theta2, epsilon, omx, omy)
 
     def reset(self):
         """Resets the engine.
-        """        
+        """
         self.sample_list = np.empty(0)
         self.engine.reset()
 
@@ -335,7 +337,7 @@ class radial_scan(object):
         -------
         ndarray
             radius scan results
-        """        
+        """
         self.sample_list = np.append(self.sample_list, sample_list)
         return np.asarray(self.engine.compute(sample_list))
 
@@ -351,7 +353,7 @@ class radial_scan(object):
         -------
         ndarray
             radius scan dummy results
-        """        
+        """
         self.sample_list = np.append(self.sample_list, sample_list)
         return np.asarray(self.engine.dummy_compute(sample_list))
 
@@ -362,7 +364,7 @@ class radial_scan(object):
         -------
         ndarray
             the data
-        """        
+        """
         return np.asarray(self.engine.get_data())
 
 
@@ -384,9 +386,11 @@ def cartesian_to_polar_4d(x, y, px, py):
     -------
     tuple of ndarray
         (r, alpha, theta1, theta2)
-    """    
-    r = np.sqrt(np.power(x, 2) + np.power(y, 2) + np.power(px, 2) + np.power(py, 2))
+    """
+    r = np.sqrt(np.power(x, 2) + np.power(y, 2) +
+                np.power(px, 2) + np.power(py, 2))
     theta1 = np.arctan2(px, x) + np.pi
     theta2 = np.arctan2(py, y) + np.pi
-    alpha = np.arctan2(np.sqrt(y * y + py * py), np.sqrt(x * x + px * px)) + np.pi
+    alpha = np.arctan2(np.sqrt(y * y + py * py),
+                       np.sqrt(x * x + px * px)) + np.pi
     return r, alpha, theta1, theta2

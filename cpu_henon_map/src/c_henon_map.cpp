@@ -584,6 +584,8 @@ radial_scan::radial_scan(double _dr, std::vector<double> _alpha, std::vector<dou
     radiuses.resize(alpha.size());
 }
 
+radial_scan::~radial_scan(){}
+
 void radial_scan::reset()
 {
     thrust::fill(STEP.begin(), STEP.end(), 0);
@@ -596,7 +598,7 @@ std::vector<std::vector<double>> radial_scan::compute(std::vector<unsigned int> 
 {
 #if THRUST_DEVICE_SYSTEM == THRUST_DEVICE_SYSTEM_OMP
     unsigned int batch = 32;
-#elif THRUST_DEVICE_SYSTEM == THRUST_DEVICE_SYSTEM_CUDA
+#else
     unsigned int batch = ALPHA.size();
 #endif
     std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
@@ -608,7 +610,6 @@ std::vector<std::vector<double>> radial_scan::compute(std::vector<unsigned int> 
     unsigned int mins, hours, secs;
 
     radial_henon_functor functor(dr, epsilon, 100.0, omx, omy);
-    pybind11::print("BEGIN!");
     for (unsigned int i = 0; i < ALPHA.size(); i += batch)
     {
         if (i != 0 && std::chrono::duration_cast<std::chrono::seconds>(end - mid).count() > 15)
@@ -618,7 +619,7 @@ std::vector<std::vector<double>> radial_scan::compute(std::vector<unsigned int> 
             secs = fmod(ETA, 60);
             mins = int(ETA / 60) % 60;
             hours = mins / 60;
-            pybind11::print(i, "/", ALPHA.size(), "; ETA:", hours, "h", mins, "m", secs, "s");
+            std::cout <<  i << "/" << ALPHA.size() << "; ETA: " << hours << " h " << mins << " m " << secs << " s " << std::endl;
         }
         
         unsigned int endpoint = i + batch < ALPHA.size() ? i + batch : ALPHA.size();
@@ -666,13 +667,12 @@ std::vector<std::vector<double>> radial_scan::dummy_compute(std::vector<unsigned
     std::chrono::steady_clock::time_point mid = std::chrono::steady_clock::now();
 
     dummy_functor functor;
-    pybind11::print("BEGIN!");
     for (unsigned int i = 0; i < ALPHA.size(); i += batch)
     {
         if (i != 0 && std::chrono::duration_cast<std::chrono::seconds>(end - mid).count() > 15)
         {
             mid = std::chrono::steady_clock::now();
-            pybind11::print(i, "/", ALPHA.size());
+            std::cout << i << "/" << ALPHA.size() << std::endl;
         }
         unsigned int endpoint = i + batch < ALPHA.size() ? i + batch : ALPHA.size();
         for (auto t : time_samples)
