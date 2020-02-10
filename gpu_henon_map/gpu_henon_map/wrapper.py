@@ -4,7 +4,7 @@ import scipy as sc
 import scipy.integrate as integrate
 import pandas as pd
 
-from . import gpu_henon_map as gpu_hm
+from . import gpu_henon_map_core as gpu_hm
 
 
 class henon_radial(object):

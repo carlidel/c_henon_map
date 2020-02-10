@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.11 FATAL_ERROR)
 # call with -A x64 on windows
 project(all_henon_map)
 find_package(OpenMP REQUIRED)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_subdirectory(pybind11)
 
 include_directories(c:/thrust)
@@ -14,5 +15,5 @@ add_library(henon_map STATIC
     ${PROJECT_SOURCE_DIR}/src/c_henon_map.h
 )
 
-pybind11_add_module(cpu_henon_map ${PROJECT_SOURCE_DIR}/src/bindings.cpp)
-target_link_libraries(cpu_henon_map PRIVATE henon_map)
+pybind11_add_module(cpu_henon_map_core ${PROJECT_SOURCE_DIR}/src/bindings.cpp)
+target_link_libraries(cpu_henon_map_core PRIVATE henon_map)

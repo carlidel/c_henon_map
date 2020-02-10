@@ -68,7 +68,7 @@ setup(
     author_email='carlidel95@gmail.com',
     description='Henon map implemented in c++ - CPU backend',
     long_description='',
-    ext_modules=[CMakeExtension('cpu_henon_map.cpu_henon_map', '.')],
+    ext_modules=[CMakeExtension('cpu_henon_map.cpu_henon_map_core', '.')],
     packages=['cpu_henon_map'],
     install_requires=['pybind11>=2.4'],
     setup_requires=['pybind11>=2.4'],

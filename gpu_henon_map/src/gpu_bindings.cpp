@@ -5,7 +5,7 @@ namespace py = pybind11;
 # include "c_henon_map.h"
 
 // PYTHON BINDING
-PYBIND11_MODULE(gpu_henon_map, m)
+PYBIND11_MODULE(gpu_henon_map_core, m)
 {
     py::class_<henon_radial>(m, "gpu_henon_radial")
         .def(py::init<unsigned int, unsigned int, double>())
