@@ -27,9 +27,23 @@ def polar_to_cartesian(radius, alpha, theta1, theta2):
 
 @njit
 def dummy_map(step, max_iterations):
-    for j in prange(step.shape[0]):
+    for j in prange(step.size):
         step[j] = max_iterations
     return step
+
+
+@njit(parallel=True)
+def advanced_dummy_map(alpha, theta1, theta2, r):
+    step = np.zeros(alpha.size)
+    for j in prange(alpha.size):
+        step[j] = (
+            (alpha[j] 
+            + 0.5 * np.sin(theta1[j] * 5) 
+            + 0.5 * np.sin(theta2[j] * 3)
+            ) * r)
+        # step[j] = alpha[j] + theta1[j] + theta2[j]
+    return step
+
 
 
 @njit(parallel=True)
@@ -54,3 +68,26 @@ def henon_map(alpha, theta1, theta2, dr, step, limit, max_iterations, omega_x, o
             if flag:
                 step[j] += 1
     return step
+
+
+@njit(parallel=True)
+def henon_full_track(radius, alpha, theta1, theta2, n_iterations, omega_x, omega_y):
+
+    x = np.empty((n_iterations, radius.size))
+    y = np.empty((n_iterations, radius.size))
+    px = np.empty((n_iterations, radius.size))
+    py = np.empty((n_iterations, radius.size))
+
+    for j in prange(len(radius)):
+        x[0][j], y[0][j], px[0][j], py[0][j] = polar_to_cartesian(
+            radius[j], alpha[j], theta1[j], theta2[j])
+        for k in range(1, n_iterations):
+            temp = (px[k - 1][j]
+                    + x[k - 1][j] * x[k - 1][j] - y[k - 1][j] * y[k - 1][j])
+            x[k][j], px[k][j] = rotation(x[k - 1][j], temp, omega_x[k - 1])
+
+            temp = (py[k - 1][j]
+                    - 2 * x[k - 1][j] * y[k - 1][j])
+            y[k][j], py[k][j] = rotation(y[k - 1][j], temp, omega_y[k - 1])
+            
+    return x, y, px, py

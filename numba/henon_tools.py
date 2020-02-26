@@ -1,8 +1,33 @@
-from numba import cuda
+import matplotlib.pyplot as plt
+from numba import cuda, jit, njit
 import numpy as np
 
 import gpu_henon_core as gpu
 import cpu_henon_core as cpu
+
+
+@njit
+def modulation(epsilon, n_elements):
+    coefficients = np.array([1.000e-4,
+                             0.218e-4,
+                             0.708e-4,
+                             0.254e-4,
+                             0.100e-4,
+                             0.078e-4,
+                             0.218e-4])
+    modulations = np.array([1 * (2 * np.pi / 868.12),
+                            2 * (2 * np.pi / 868.12),
+                            3 * (2 * np.pi / 868.12),
+                            6 * (2 * np.pi / 868.12),
+                            7 * (2 * np.pi / 868.12),
+                            10 * (2 * np.pi / 868.12),
+                            12 * (2 * np.pi / 868.12)])
+    omega_sum = np.array([
+        np.sum(coefficients * np.cos(modulations * k)) for k in range(n_elements)
+    ])
+    omega_x = 0.168 * 2 * np.pi * (1 + epsilon * omega_sum)
+    omega_y = 0.201 * 2 * np.pi * (1 + epsilon * omega_sum)
+    return omega_x, omega_y
 
 
 class gpu_radial_scan(object):
@@ -78,26 +103,7 @@ class gpu_radial_scan(object):
         for i in range(1, len(sample_list)):
             assert sample_list[i] <= sample_list[i - 1]
 
-        # Modulation
-        coefficients = np.array([1.000e-4,
-                                 0.218e-4,
-                                 0.708e-4,
-                                 0.254e-4,
-                                 0.100e-4,
-                                 0.078e-4,
-                                 0.218e-4])
-        modulations = np.array([1 * (2 * np.pi / 868.12),
-                                2 * (2 * np.pi / 868.12),
-                                3 * (2 * np.pi / 868.12),
-                                6 * (2 * np.pi / 868.12),
-                                7 * (2 * np.pi / 868.12),
-                                10 * (2 * np.pi / 868.12),
-                                12 * (2 * np.pi / 868.12)])
-        omega_sum = np.array([
-            np.sum(coefficients * np.cos(modulations * k)) for k in range(sample_list[0])
-        ])
-        omega_x = 0.168 * 2 * np.pi * (1 + self.epsilon * omega_sum)
-        omega_y = 0.201 * 2 * np.pi * (1 + self.epsilon * omega_sum)
+        omega_x, omega_y = modulation(self.epsilon, sample_list[0])
 
         d_omega_x = cuda.to_device(omega_x)
         d_omega_y = cuda.to_device(omega_y)
@@ -112,7 +118,7 @@ class gpu_radial_scan(object):
             self.d_step.copy_to_host(self.step)
             self.container.append(self.step.copy())
 
-        return np.asarray(self.container)
+        return np.transpose(np.asarray(self.container)) * self.dr
     
     def dummy_compute(self, sample_list):
         """performs a dummy computation
@@ -135,7 +141,7 @@ class gpu_radial_scan(object):
             self.d_step.copy_to_host(self.step)
             self.container.append(self.step.copy())
 
-        return np.asarray(self.container)
+        return np.transpose(np.asarray(self.container))
 
     def get_data(self):
         """Get the data
@@ -145,8 +151,102 @@ class gpu_radial_scan(object):
         ndarray
             the data
         """
-        return np.asarray(self.container)
+        return np.transpose(np.asarray(self.container)) * self.dr
 
+
+class gpu_full_track(object):
+    def __init__(self, radius, alpha, theta1, theta2, epsilon, n_iterations):
+        """init an henon optimized full tracker!
+        
+        Parameters
+        ----------
+        object : self
+            self
+        radius : ndarray        
+            radiuses to consider (raw)
+        alpha : ndarray
+            alpha angles to consider (raw)
+        theta1 : ndarray
+            theta1 angles to consider (raw)
+        theta2 : ndarray
+            theta2 angles to consider (raw)
+        epsilon : float
+            intensity of modulation
+        n_iterations : unsigned int
+            number of iterations to track
+        """
+        assert alpha.size == theta1.size
+        assert alpha.size == theta2.size
+        assert alpha.size == radius.size
+
+        # save data as members
+        self.radius = radius
+        self.alpha = alpha
+        self.theta1 = theta1
+        self.theta2 = theta2
+        self.epsilon = epsilon
+        self.n_iterations = n_iterations
+
+        # make containers
+        self.x = np.empty((n_iterations, alpha.size))
+        self.px = np.empty((n_iterations, alpha.size))
+        self.y = np.empty((n_iterations, alpha.size))
+        self.py = np.empty((n_iterations, alpha.size))
+
+        # load vectors to gpu
+        self.d_alpha = cuda.to_device(self.alpha)
+        self.d_theta1 = cuda.to_device(self.theta1)
+        self.d_theta2 = cuda.to_device(self.theta2)
+        self.d_radius = cuda.to_device(self.radius)
+
+        self.d_x = cuda.device_array((n_iterations, alpha.size))
+        self.d_px = cuda.device_array((n_iterations, alpha.size))
+        self.d_y = cuda.device_array((n_iterations, alpha.size))
+        self.d_py = cuda.device_array((n_iterations, alpha.size))
+
+        # synchronize!
+        cuda.synchronize()
+
+    def compute(self):
+        """Compute the tracking
+        
+        Returns
+        -------
+        tuple of 2D ndarray [n_iterations, n_samples]
+            (radius, alpha, theta1, theta2)
+        """
+        threads_per_block = 1024
+        blocks_per_grid = self.alpha.size // 1024 + 1
+        
+        omega_x, omega_y = modulation(self.epsilon, self.n_iterations)
+
+        d_omega_x = cuda.to_device(omega_x)
+        d_omega_y = cuda.to_device(omega_y)
+
+        # Execution
+        gpu.henon_map[blocks_per_grid, threads_per_block](
+            self.d_radius, self.d_alpha, self.d_theta1, self.d_theta2,
+            self.n_iterations, d_omega_x, d_omega_y,
+            self.d_x, self.d_y, self.d_px, self.d_py
+            )
+        cuda.synchronize()
+
+        self.d_x.copy_to_host(self.x)
+        self.d_y.copy_to_host(self.y)
+        self.d_px.copy_to_host(self.px)
+        self.d_py.copy_to_host(self.py)
+
+        return cartesian_to_polar_4d(self.x, self.y, self.px, self.py)
+
+    def get_data(self):
+        """Get the data
+        
+        Returns
+        -------
+        tuple of 2D ndarray [n_iterations, n_samples]
+            (radius, alpha, theta1, theta2)
+        """
+        return cartesian_to_polar_4d(self.x, self.y, self.px, self.py)
 
 
 class cpu_radial_scan(object):
@@ -208,26 +308,7 @@ class cpu_radial_scan(object):
         for i in range(1, len(sample_list)):
             assert sample_list[i] <= sample_list[i - 1]
 
-        # Modulation
-        coefficients = np.array([1.000e-4,
-                                 0.218e-4,
-                                 0.708e-4,
-                                 0.254e-4,
-                                 0.100e-4,
-                                 0.078e-4,
-                                 0.218e-4])
-        modulations = np.array([1 * (2 * np.pi / 868.12),
-                                2 * (2 * np.pi / 868.12),
-                                3 * (2 * np.pi / 868.12),
-                                6 * (2 * np.pi / 868.12),
-                                7 * (2 * np.pi / 868.12),
-                                10 * (2 * np.pi / 868.12),
-                                12 * (2 * np.pi / 868.12)])
-        omega_sum = np.array([
-            np.sum(coefficients * np.cos(modulations * k)) for k in range(sample_list[0])
-        ])
-        omega_x = 0.168 * 2 * np.pi * (1 + self.epsilon * omega_sum)
-        omega_y = 0.201 * 2 * np.pi * (1 + self.epsilon * omega_sum)
+        omega_x, omega_y = modulation(self.epsilon, sample_list[0])
 
         # Execution
         for sample in sample_list:
@@ -237,7 +318,7 @@ class cpu_radial_scan(object):
                 sample, omega_x, omega_y)
             self.container.append(self.step.copy())
 
-        return np.asarray(self.container)
+        return np.transpose(np.asarray(self.container)) * self.dr
 
     def dummy_compute(self, sample_list):
         """performs a dummy computation
@@ -257,7 +338,28 @@ class cpu_radial_scan(object):
             self.step = cpu.dummy_map(self.step, sample)
             self.container.append(self.step.copy())
 
-        return np.asarray(self.container)
+        return np.transpose(np.asarray(self.container))
+
+    def advanced_dummy_compute(self, sample_list):
+        """performs a dummy computation
+        
+        Parameters
+        ----------
+        sample_list : ndarray
+            iterations to consider
+
+        Returns
+        -------
+        ndarray
+            radius dummy results
+        """
+        # Execution
+        for sample in sample_list:
+            self.step = cpu.dummy_map(
+                self.alpha, self.theta1, self.theta2, self.dr, self.step, sample)
+            self.container.append(self.step.copy())
+
+        return np.transpose(np.asarray(self.container))
 
     def get_data(self):
         """Get the data
@@ -267,8 +369,136 @@ class cpu_radial_scan(object):
         ndarray
             the data
         """
-        return np.asarray(self.container)
+        return np.transpose(np.asarray(self.container)) * self.dr
 
+
+class cpu_full_track(object):
+    def __init__(self, radius, alpha, theta1, theta2, epsilon, n_iterations):
+        """init an henon optimized full tracker!
+        
+        Parameters
+        ----------
+        object : self
+            self
+        radius : ndarray        
+            radiuses to consider (raw)
+        alpha : ndarray
+            alpha angles to consider (raw)
+        theta1 : ndarray
+            theta1 angles to consider (raw)
+        theta2 : ndarray
+            theta2 angles to consider (raw)
+        epsilon : float
+            intensity of modulation
+        n_iterations : unsigned int
+            number of iterations to track
+        """
+        assert alpha.size == theta1.size
+        assert alpha.size == theta2.size
+        assert alpha.size == radius.size
+
+        # save data as members
+        self.radius = radius
+        self.alpha = alpha
+        self.theta1 = theta1
+        self.theta2 = theta2
+        self.epsilon = epsilon
+        self.n_iterations = n_iterations
+
+        # make containers
+        self.x = np.empty((n_iterations, alpha.size))
+        self.px = np.empty((n_iterations, alpha.size))
+        self.y = np.empty((n_iterations, alpha.size))
+        self.py = np.empty((n_iterations, alpha.size))
+
+    def compute(self):
+        """Compute the tracking
+        
+        Returns
+        -------
+        tuple of 2D ndarray [n_iterations, n_samples]
+            (radius, alpha, theta1, theta2)
+        """
+        omega_x, omega_y = modulation(self.epsilon, self.n_iterations)
+        # Execution
+        self.x, self.y, self.px, self.py = cpu.henon_map(
+            self.radius, self.alpha, self.theta1, self.theta2,
+            self.n_iterations, omega_x, omega_y
+        )
+        return cartesian_to_polar_4d(self.x, self.y, self.px, self.py)
+
+    def get_data(self):
+        """Get the data
+        
+        Returns
+        -------
+        tuple of 2D ndarray [n_iterations, n_samples]
+            (radius, alpha, theta1, theta2)
+        """
+        return cartesian_to_polar_4d(self.x, self.y, self.px, self.py)
+
+
+def henon_single_call(*args, **kwargs):
+    """Henon_map single call
+    
+    Parameters
+    ----------
+    alpha : float
+        alpha angle
+    theta1 : float
+        theta call
+    theta2 : float
+        theta angle
+    dr : float
+        step
+    epsilon : float
+        intensity
+    n_iterations : unsigned int
+        number of iterations
+    
+    Returns
+    -------
+    float
+        the radius
+    """    
+    alpha, theta1, theta2, dr, epsilon, n_iterations = args
+    omega_x, omega_y = modulation(epsilon, n_iterations)
+    return dr * np.transpose(
+        np.asarray(
+            cpu.henon_map(
+                np.asarray([alpha]),
+                np.asarray([theta1]),
+                np.asarray([theta2]),
+                dr,
+                np.zeros((1), dtype=np.int),
+                100.0,
+                n_iterations,
+                omega_x, omega_y
+            )
+        )
+    )
+
+
+def advanced_dummy_call(alpha, theta1, theta2, r):
+    """dummy single call
+    
+    Parameters
+    ----------
+    alpha : ndarray
+        alpha angle
+    theta1 : ndarray
+        theta call
+    theta2 : ndarray
+        theta angle
+    r : float
+        radius
+    
+    Returns
+    -------
+    float
+        the radius
+    """    
+    return cpu.advanced_dummy_map(np.asarray(alpha), np.asarray(theta1), np.asarray(theta2), r)
 
 def cartesian_to_polar_4d(x, y, px, py):
     """Convert a 4d cartesian point to a 4d polar variable point.

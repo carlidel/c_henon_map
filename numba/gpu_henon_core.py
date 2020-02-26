@@ -85,3 +85,23 @@ def henon_map(c_alpha, c_theta1, c_theta2, c_dr, step, c_limit, c_max_iterations
                     step[j] = step_local[i]
                     return
             step_local[i] += 1
+
+
+@cuda.jit
+def henon_full_track(radius, alpha, theta1, theta2, n_iterations, omega_x, omega_y, x, y, px, py):
+    i = cuda.threadIdx.x
+    j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
+
+    temp = cuda.shared.array(shape=(1024), dtype=numba.float64)
+    cuda.syncthreads()
+
+    x[0][j], y[0][j], px[0][j], py[0][j] = polar_to_cartesian(
+        radius[j], alpha[j], theta1[j], theta2[j])
+    for k in range(1, n_iterations):
+        temp[i] = (px[k - 1][j] 
+            + x[k - 1][j] * x[k - 1][j] - y[k - 1][j] * y[k - 1][j])
+        x[k][j], px[k][j] = rotation(x[k - 1][j], temp[i], omega_x[k - 1]) 
+        
+        temp[i] = (py[k - 1][j] 
+            - 2 * x[k - 1][j] * y[k - 1][j])
+        y[k][j], py[k][j] = rotation(y[k - 1][j], temp[i], omega_y[k - 1])
