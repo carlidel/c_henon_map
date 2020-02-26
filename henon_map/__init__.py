@@ -2,8 +2,8 @@ import matplotlib.pyplot as plt
 from numba import cuda, jit, njit
 import numpy as np
 
-import gpu_henon_core as gpu
-import cpu_henon_core as cpu
+from . import gpu_henon_core as gpu
+from . import cpu_henon_core as cpu
 
 
 @njit
@@ -119,7 +119,7 @@ class gpu_radial_scan(object):
             self.container.append(self.step.copy())
 
         return np.transpose(np.asarray(self.container)) * self.dr
-    
+
     def dummy_compute(self, sample_list):
         """performs a dummy computation
         
@@ -217,7 +217,7 @@ class gpu_full_track(object):
         """
         threads_per_block = 1024
         blocks_per_grid = self.alpha.size // 1024 + 1
-        
+
         omega_x, omega_y = modulation(self.epsilon, self.n_iterations)
 
         d_omega_x = cuda.to_device(omega_x)
@@ -228,7 +228,7 @@ class gpu_full_track(object):
             self.d_radius, self.d_alpha, self.d_theta1, self.d_theta2,
             self.n_iterations, d_omega_x, d_omega_y,
             self.d_x, self.d_y, self.d_px, self.d_py
-            )
+        )
         cuda.synchronize()
 
         self.d_x.copy_to_host(self.x)
@@ -332,7 +332,7 @@ class cpu_radial_scan(object):
         -------
         ndarray
             radius dummy results
-        """       
+        """
         # Execution
         for sample in sample_list:
             self.step = cpu.dummy_map(self.step, sample)
@@ -460,7 +460,7 @@ def henon_single_call(*args, **kwargs):
     -------
     float
         the radius
-    """    
+    """
     alpha, theta1, theta2, dr, epsilon, n_iterations = args
     omega_x, omega_y = modulation(epsilon, n_iterations)
     return dr * np.transpose(
@@ -497,8 +497,9 @@ def advanced_dummy_call(alpha, theta1, theta2, r):
     -------
     float
         the radius
-    """    
+    """
     return cpu.advanced_dummy_map(np.asarray(alpha), np.asarray(theta1), np.asarray(theta2), r)
+
 
 def cartesian_to_polar_4d(x, y, px, py):
     """Convert a 4d cartesian point to a 4d polar variable point.
