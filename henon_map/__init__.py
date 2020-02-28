@@ -7,7 +7,7 @@ from . import cpu_henon_core as cpu
 
 
 @njit
-def modulation(epsilon, n_elements):
+def modulation(epsilon, n_elements, first_index=0):
     coefficients = np.array([1.000e-4,
                              0.218e-4,
                              0.708e-4,
@@ -23,11 +23,117 @@ def modulation(epsilon, n_elements):
                             10 * (2 * np.pi / 868.12),
                             12 * (2 * np.pi / 868.12)])
     omega_sum = np.array([
-        np.sum(coefficients * np.cos(modulations * k)) for k in range(n_elements)
+        np.sum(coefficients * np.cos(modulations * k)) for k in range(first_index, first_index + n_elements)
     ])
     omega_x = 0.168 * 2 * np.pi * (1 + epsilon * omega_sum)
     omega_y = 0.201 * 2 * np.pi * (1 + epsilon * omega_sum)
     return omega_x, omega_y
+
+
+class henon_map_2d(object):
+    def __init__(self, x, p, epsilon, limit=100.0):
+        """Init a 2d Henon Map object
+        
+        Parameters
+        ----------
+        object : self
+            self
+        x : ndarray
+            x coordinates
+        p : ndarray
+            p coordinates
+        epsilon : float
+            modulation intensity
+        limit : float, optional
+            barrier limit in action, by default 100.0
+        """        
+        assert x.size == p.size
+        self.x = x
+        self.p = p
+        self.x0 = x.copy()
+        self.p0 = p.copy()
+        self.epsilon = epsilon
+        self.n_iterations = np.zeros(x.shape, dtype=np.int)
+        self.limit = limit
+        self.total_iters = 0
+
+    def reset(self):
+        """Resets the object.
+        """        
+        self.x = self.x0.copy()
+        self.p = self.p0.copy()
+        self.n_iterations = np.zeros(self.x.shape, dtype=np.int)
+        self.total_iters = 0
+
+    def compute(self, iterations_to_perform):
+        """Computes a given number of iterations
+        
+        Parameters
+        ----------
+        iterations_to_perform : unsigned int
+            iterations to perform
+        
+        Returns
+        -------
+        tuple
+            (x, p, iterations)
+        """        
+        omega = modulation(self.epsilon, iterations_to_perform, self.total_iters)[0]
+        self.x, self.p, self.n_iterations = cpu.henon_map_2D(
+            self.x, self.p, self.n_iterations, self.limit, iterations_to_perform, omega)
+        self.total_iters += iterations_to_perform
+        return self.x, self.p, self.n_iterations
+
+    def get_data(self):
+        """Get the data
+        
+        Returns
+        -------
+        tuple
+            (x, p, iterations)
+        """        
+        return self.x, self.p, self.n_iterations
+
+    def get_coords(self):
+        """Get coordinates
+        
+        Returns
+        -------
+        tuple
+            (x, p)
+        """        
+        return self.x, self.p
+
+    def get_iters(self):
+        """Get times
+        
+        Returns
+        -------
+        ndarray
+            times
+        """        
+        return self.n_iterations
+
+    def get_filtered_coords(self):
+        """Get filtered coordinates
+        
+        Returns
+        -------
+        tuple
+            (x, p)
+        """
+        indexes = np.logical_and(self.x == 0.0, self.p == 0.0)
+        return self.x[indexes], self.p[indexes]
+
+    def get_filtered_iters(self):
+        """Get filtered times
+        
+        Returns
+        -------
+        ndarray
+            times
+        """
+        return self.n_iterations[self.n_iterations < self.total_iters]
 
 
 class gpu_radial_scan(object):
@@ -421,7 +527,7 @@ class cpu_full_track(object):
         """
         omega_x, omega_y = modulation(self.epsilon, self.n_iterations)
         # Execution
-        self.x, self.y, self.px, self.py = cpu.henon_map(
+        self.x, self.y, self.px, self.py = cpu.henon_full_track(
             self.radius, self.alpha, self.theta1, self.theta2,
             self.n_iterations, omega_x, omega_y
         )
@@ -436,6 +542,96 @@ class cpu_full_track(object):
             (radius, alpha, theta1, theta2)
         """
         return cartesian_to_polar_4d(self.x, self.y, self.px, self.py)
+
+
+class cpu_partial_track(object):
+    def __init__(self, radius, alpha, theta1, theta2, epsilon):
+        """init an henon optimized full tracker!
+        
+        Parameters
+        ----------
+        object : self
+            self
+        radius : ndarray        
+            radiuses to consider (raw)
+        alpha : ndarray
+            alpha angles to consider (raw)
+        theta1 : ndarray
+            theta1 angles to consider (raw)
+        theta2 : ndarray
+            theta2 angles to consider (raw)
+        epsilon : float
+            intensity of modulation
+        """
+        assert alpha.size == theta1.size
+        assert alpha.size == theta2.size
+        assert alpha.size == radius.size
+
+        # save data as members
+        self.r = radius
+        self.alpha = alpha
+        self.theta1 = theta1
+        self.theta2 = theta2
+        self.r_0 = radius.copy()
+        self.alpha_0 = alpha.copy()
+        self.theta1_0 = theta1.copy()
+        self.theta2_0 = theta2.copy()
+        self.epsilon = epsilon
+        self.total_iters = 0
+        self.limit = 100.0
+
+        # make containers
+        self.step = np.zeros((alpha.size), dtype=np.int)
+
+    def compute(self, n_iterations):
+        """Compute the tracking
+        
+        Returns
+        -------
+        tuple of 2D ndarray [n_iterations, n_samples]
+            (radius, alpha, theta1, theta2, steps)
+        """
+        omega_x, omega_y = modulation(self.epsilon, n_iterations, self.total_iters)
+        # Execution
+        self.r, self.alpha, self.theta1, self.theta2, self.step = cpu.henon_partial_track(
+            self.r, self.alpha, self.theta1, self.theta2, self.step, self.limit,
+            n_iterations, omega_x, omega_y
+        )
+        self.total_iters += n_iterations
+        return self.r, self.alpha, self.theta1, self.theta2, self.step
+
+    def get_data(self):
+        """Get the data
+        
+        Returns
+        -------
+        tuple
+            (radius, alpha, theta1, theta2)
+        """
+        return self.r, self.alpha, self.theta1, self.theta2, self.step
+
+    def get_radiuses(self):
+        return self.r
+
+    def get_filtered_radiuses(self):
+        return self.r[self.r != 0.0]
+
+    def get_times(self):
+        return self.step
+
+    def get_action(self):
+        return np.power(self.r, 2)
+    
+    def get_filtered_action(self):
+        return np.power(self.r[self.r != 0.0], 2)
+
+    def reset(self):
+        self.r = self.r_0
+        self.alpha = self.alpha_0
+        self.theta1 = self.theta1_0
+        self.theta2 = self.theta2_0
+        self.step = np.zeros((self.alpha.size), dtype=np.int)
+        self.total_iters = 0
 
 
 def henon_single_call(*args, **kwargs):
