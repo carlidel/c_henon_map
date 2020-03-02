@@ -153,14 +153,13 @@ def henon_partial_track(radius, alpha, theta1, theta2, steps, limit, max_iterati
             temp1 = (px[j] + x[j] * x[j] - y[j] * y[j])
             temp2 = (py[j] - 2 * x[j] * y[j])
 
-            x[j], px[j] = rotation(x[j], temp1, omega_x[k - 1])
-            y[j], py[j] = rotation(y[j], temp2, omega_y[k - 1])
+            x[j], px[j] = rotation(x[j], temp1, omega_x[k])
+            y[j], py[j] = rotation(y[j], temp2, omega_y[k])
             if(check_boundary(x[j], px[j], y[j], py[j], limit) or (x[j] == 0.0 and px[j] == 0.0 and y[j] == 0.0 and py[j] == 0.0)):
                 x[j] = 0.0
                 px[j] = 0.0
                 y[j] = 0.0
                 py[j] = 0.0
-                steps[j] -= 1
                 break
             steps[j] += 1
 
