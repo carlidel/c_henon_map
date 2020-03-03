@@ -583,6 +583,14 @@ class cpu_partial_track(object):
         # make containers
         self.step = np.zeros((alpha.size), dtype=np.int)
 
+        self.x = np.empty(alpha.size)
+        self.px = np.empty(alpha.size)
+        self.y = np.empty(alpha.size)
+        self.py = np.empty(alpha.size)
+
+        self.x, self.y, self.px, self.py = cpu.polar_to_cartesian(
+            self.r_0, self.alpha_0, self.theta1_0, self.theta2_0)
+
     def compute(self, n_iterations):
         """Compute the tracking
         
@@ -593,11 +601,12 @@ class cpu_partial_track(object):
         """
         omega_x, omega_y = modulation(self.epsilon, n_iterations, self.total_iters)
         # Execution
-        self.r, self.alpha, self.theta1, self.theta2, self.step = cpu.henon_partial_track(
-            self.r, self.alpha, self.theta1, self.theta2, self.step, self.limit,
+        self.x, self.y, self.px, self.py, self.step = cpu.henon_partial_track(
+            self.x, self.y, self.px, self.py, self.step, self.limit,
             n_iterations, omega_x, omega_y
         )
         self.total_iters += n_iterations
+        self.r, self.alpha, self.theta1, self.theta2 = cpu.cartesian_to_polar(self.x, self.y, self.px, self.py)
         return self.r, self.alpha, self.theta1, self.theta2, self.step
 
     def get_data(self):
@@ -631,6 +640,8 @@ class cpu_partial_track(object):
         self.theta1 = self.theta1_0
         self.theta2 = self.theta2_0
         self.step = np.zeros((self.alpha.size), dtype=np.int)
+        self.x, self.y, self.px, self.py = cpu.polar_to_cartesian(
+            self.r_0, self.alpha_0, self.theta1_0, self.theta2_0)
         self.total_iters = 0
 
 

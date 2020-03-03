@@ -18,10 +18,10 @@ def check_boundary(v0, v1, v2, v3, limit):
 
 @njit
 def polar_to_cartesian(radius, alpha, theta1, theta2):
-    x = radius * math.cos(alpha) * math.cos(theta1)
-    px = radius * math.cos(alpha) * math.sin(theta1)
-    y = radius * math.sin(alpha) * math.cos(theta2)
-    py = radius * math.sin(alpha) * math.sin(theta2)
+    x = radius * np.cos(alpha) * np.cos(theta1)
+    px = radius * np.cos(alpha) * np.sin(theta1)
+    y = radius * np.sin(alpha) * np.cos(theta2)
+    py = radius * np.sin(alpha) * np.sin(theta2)
     return x, px, y, py
 
 @njit
@@ -46,10 +46,10 @@ def cartesian_to_polar(x, y, px, py):
     """
     r = np.sqrt(np.power(x, 2) + np.power(y, 2) +
                 np.power(px, 2) + np.power(py, 2))
-    theta1 = np.arctan2(px, x) + np.pi
-    theta2 = np.arctan2(py, y) + np.pi
+    theta1 = np.arctan2(px, x)
+    theta2 = np.arctan2(py, y)
     alpha = np.arctan2(np.sqrt(y * y + py * py),
-                       np.sqrt(x * x + px * px)) + np.pi
+                       np.sqrt(x * x + px * px))
     return r, alpha, theta1, theta2
 
 
@@ -139,16 +139,8 @@ def henon_full_track(radius, alpha, theta1, theta2, n_iterations, omega_x, omega
 
 
 @njit(parallel=True)
-def henon_partial_track(radius, alpha, theta1, theta2, steps, limit, max_iterations, omega_x, omega_y):
-
-    x = np.empty((radius.size))
-    y = np.empty((radius.size))
-    px = np.empty((radius.size))
-    py = np.empty((radius.size))
-
-    for j in prange(len(radius)):
-        x[j], y[j], px[j], py[j] = polar_to_cartesian(
-            radius[j], alpha[j], theta1[j], theta2[j])
+def henon_partial_track(x, y, px, py, steps, limit, max_iterations, omega_x, omega_y):
+    for j in prange(len(x)):
         for k in range(max_iterations):
             temp1 = (px[j] + x[j] * x[j] - y[j] * y[j])
             temp2 = (py[j] - 2 * x[j] * y[j])
@@ -162,6 +154,4 @@ def henon_partial_track(radius, alpha, theta1, theta2, steps, limit, max_iterati
                 py[j] = 0.0
                 break
             steps[j] += 1
-
-    r, alpha, theta1, theta2 = cartesian_to_polar(x, y, px, py)
-    return r, alpha, theta1, theta2, steps
+    return x, y, px, py, steps
