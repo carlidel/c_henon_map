@@ -25,6 +25,17 @@ def polar_to_cartesian(radius, alpha, theta1, theta2):
     return x, px, y, py
 
 
+@cuda.jit(device=True)
+def cartesian_to_polar(x, y, px, py):
+    r = np.sqrt(np.power(x, 2) + np.power(y, 2) +
+                np.power(px, 2) + np.power(py, 2))
+    theta1 = np.arctan2(px, x) + np.pi
+    theta2 = np.arctan2(py, y) + np.pi
+    alpha = np.arctan2(np.sqrt(y * y + py * py),
+                       np.sqrt(x * x + px * px)) + np.pi
+    return r, alpha, theta1, theta2
+
+
 @cuda.jit
 def dummy_map(step, max_iterations):
     stride = cuda.blockDim.x * cuda.gridDim.x
@@ -88,16 +99,14 @@ def henon_map(c_alpha, c_theta1, c_theta2, c_dr, step, c_limit, c_max_iterations
 
 
 @cuda.jit
-def henon_full_track(radius, alpha, theta1, theta2, n_iterations, omega_x, omega_y, x, y, px, py):
+def henon_full_track(x, y, px, py, n_iterations, omega_x, omega_y):
     i = cuda.threadIdx.x
     j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
 
-    temp = cuda.shared.array(shape=(1024), dtype=numba.float64)
+    temp = cuda.shared.array(shape=(512), dtype=numba.float64)
     cuda.syncthreads()
 
-    x[0][j], y[0][j], px[0][j], py[0][j] = polar_to_cartesian(
-        radius[j], alpha[j], theta1[j], theta2[j])
-    for k in range(1, n_iterations):
+    for k in range(1, n_iterations[j]):
         temp[i] = (px[k - 1][j] 
             + x[k - 1][j] * x[k - 1][j] - y[k - 1][j] * y[k - 1][j])
         x[k][j], px[k][j] = rotation(x[k - 1][j], temp[i], omega_x[k - 1]) 
@@ -105,3 +114,46 @@ def henon_full_track(radius, alpha, theta1, theta2, n_iterations, omega_x, omega
         temp[i] = (py[k - 1][j] 
             - 2 * x[k - 1][j] * y[k - 1][j])
         y[k][j], py[k][j] = rotation(y[k - 1][j], temp[i], omega_y[k - 1])
+
+
+@cuda.jit
+def henon_partial_track(g_x, g_y, g_px, g_py, g_steps, limit, max_iterations, omega_x, omega_y):
+    i = cuda.threadIdx.x
+    j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
+
+    x = cuda.shared.array(shape=(512), dtype=numba.float64)
+    y = cuda.shared.array(shape=(512), dtype=numba.float64)
+    px = cuda.shared.array(shape=(512), dtype=numba.float64)
+    py = cuda.shared.array(shape=(512), dtype=numba.float64)
+    temp1 = cuda.shared.array(shape=(512), dtype=numba.float64)
+    temp2 = cuda.shared.array(shape=(512), dtype=numba.float64)
+    steps = cuda.shard.array(shape=(512), dtype=numba.int32)
+
+    x[i] = g_x[j]
+    y[i] = g_x[j]
+    px[i] = g_px[j]
+    py[i] = g_py[j]
+    steps[i] = g_steps[j]
+
+    cuda.syncthreads()
+
+    for k in range(max_iterations):
+        temp1[i] = (px[i] + x[i] * x[i] - y[i] * y[i])
+        temp2[i] = (py[i] - 2 * x[i] * y[i])
+
+        x[i], px[i] = rotation(x[i], temp1[i], omega_x[k])
+        y[i], py[i] = rotation(y[i], temp2[i], omega_y[k])
+        if(check_boundary(x[i], px[i], y[i], py[i], limit) or (x[i] == 0.0 and px[i] == 0.0 and y[i] == 0.0 and py[i] == 0.0)):
+            x[i] = 0.0
+            px[i] = 0.0
+            y[i] = 0.0
+            py[i] = 0.0
+            break
+        steps[j] += 1
+
+    cuda.syncthreads()
+    g_x[j] = x[i]
+    g_y[j] = x[i]
+    g_px[j] = px[i]
+    g_py[j] = py[i]
+    g_steps[j] = steps[i]
