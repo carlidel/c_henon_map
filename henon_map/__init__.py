@@ -6,6 +6,14 @@ from . import gpu_henon_core as gpu
 from . import cpu_henon_core as cpu
 
 
+def polar_to_cartesian(radius, alpha, theta1, theta2):
+    return cpu.polar_to_cartesian(radius, alpha, theta1, theta2)
+
+
+def cartesian_to_polar(x, px, y, py):
+    return cpu.cartesian_to_polar(x, px, y, py)
+
+
 @njit
 def modulation(epsilon, n_elements, first_index=0):
     """Generates a modulation
@@ -191,14 +199,15 @@ class cpu_partial_track(partial_track):
         omega_x, omega_y = modulation(
             self.epsilon, n_iterations, self.total_iters)
         # Execution
-        self.x, self.y, self.px, self.py, self.step = cpu.henon_partial_track(
-            self.x, self.y, self.px, self.py, self.step, self.limit,
+        self.x, self.px, self.y, self.py, self.step = cpu.henon_partial_track(
+            self.x, self.px, self.y, self.py, self.step, self.limit,
             n_iterations, omega_x, omega_y
         )
         self.total_iters += n_iterations
         self.r, self.alpha, self.theta1, self.theta2 = cpu.cartesian_to_polar(
-            self.x, self.y, self.px, self.py)
-        return self.r, self.alpha, self.theta1, self.theta2, self.step
+            self.x, self.px, self.y, self.py)
+        return self.x, self.px, self.y, self.py, self.step
+        #return self.r, self.alpha, self.theta1, self.theta2, self.step
 
     def reset(self):
         """Resets the engine
@@ -268,7 +277,7 @@ class gpu_partial_track(partial_track):
 
         # Execution
         gpu.henon_partial_track[blocks_per_grid, threads_per_block](
-            self.d_x, self.d_y, self.d_px, self.d_py, self.d_step, self.limit,
+            self.d_x, self.d_px, self.d_y, self.d_py, self.d_step, self.limit,
             n_iterations, d_omega_x, d_omega_y
         )
         self.total_iters += n_iterations
@@ -279,9 +288,10 @@ class gpu_partial_track(partial_track):
         self.d_py.copy_to_host(self.py)
         self.d_step.copy_to_host(self.step)
         
-        self.r, self.alpha, self.theta1, self.theta2 = cpu.cartesian_to_polar(self.x, self.y, self.px, self.py)
+        self.r, self.alpha, self.theta1, self.theta2 = cpu.cartesian_to_polar(self.x, self.px, self.y, self.py)
 
-        return self.r, self.alpha, self.theta1, self.theta2, self.step
+        return self.x, self.px, self.y, self.py, self.step
+        #return self.r, self.alpha, self.theta1, self.theta2, self.step
 
     def reset(self):
         """Resets the engine
@@ -295,7 +305,7 @@ class gpu_partial_track(partial_track):
 
         self.d_step = cuda.to_device(self.step)
         
-        self.x, self.px, self.y, self.py = cpu.polar_to_cartesian(
+        self.x, self.px, self.y, self.py = gpu.actual_polar_to_cartesian(
             self.r_0, self.alpha_0, self.theta1_0, self.theta2_0)
 
         # load to GPU
@@ -380,10 +390,10 @@ class gpu_radial_scan(radial_scan):
         self.container = []
 
         # load vectors to gpu
-        self.d_alpha = cuda.to_device(self.alpha)
-        self.d_theta1 = cuda.to_device(self.theta1)
-        self.d_theta2 = cuda.to_device(self.theta2)
-        self.d_step = cuda.to_device(self.step)
+        self.d_alpha = cuda.to_device(np.ascontiguousarray(self.alpha))
+        self.d_theta1 = cuda.to_device(np.ascontiguousarray(self.theta1))
+        self.d_theta2 = cuda.to_device(np.ascontiguousarray(self.theta2))
+        self.d_step = cuda.to_device(np.ascontiguousarray(self.step))
 
     def reset(self):
         """Resets the engine.
@@ -544,7 +554,27 @@ class full_track(object):
         tuple of 2D ndarray [n_iterations, n_samples]
             (radius, alpha, theta1, theta2)
         """
-        return cpu.cartesian_to_polar(self.x, self.y, self.px, self.py)
+        return cpu.cartesian_to_polar(self.x, self.px, self.y, self.py)
+
+    def accumulate_and_return(self, n_sectors):
+        """Returns the summed results (power 4 as documented)
+        
+        Parameters
+        ----------
+        n_sectors : int
+            number of sectors to consider in the 2 theta space
+        
+        Returns
+        -------
+        ndarray
+            list of values for the different istances considered.
+        """        
+        radius, alpha, th1, th2 = cpu.cartesian_to_polar(
+            self.x, self.px, self.y, self.py)
+        
+        self.matrices, result = cpu.accumulate_and_return(radius, alpha, th1, th2, n_sectors)
+        
+        return result
 
     @staticmethod
     def generate_instance(radius, alpha, theta1, theta2, iters, epsilon):
@@ -572,9 +602,9 @@ class full_track(object):
         """        
         cuda_device = cuda.is_available()
         if cuda_device:
-            return gpu_full_scan(radius, alpha, theta1, theta2, iters, epsilon)
+            return gpu_full_track(radius, alpha, theta1, theta2, iters, epsilon)
         else:
-            return cpu_full_scan(radius, alpha, theta1, theta2, iters, epsilon)
+            return cpu_full_track(radius, alpha, theta1, theta2, iters, epsilon)
 
 
 class gpu_full_track(full_track):
@@ -599,7 +629,7 @@ class gpu_full_track(full_track):
         self.y = np.zeros((self.max_iters, alpha.size))
         self.py = np.zeros((self.max_iters, alpha.size))
 
-        self.x[0, :], self.px[0, :], self.y[0, :], self.py[0, :] = cpu.polar_to_cartesian(radius, alpha, theta1, theta2)
+        self.x[0, :], self.px[0, :], self.y[0, :], self.py[0, :] = gpu.actual_polar_to_cartesian(radius, alpha, theta1, theta2)
 
         # load vectors to gpu
         
@@ -626,18 +656,17 @@ class gpu_full_track(full_track):
         d_omega_y = cuda.to_device(omega_y)
 
         # Execution
-        gpu.henon_map[blocks_per_grid, threads_per_block](
-            self.d_x, self.d_y, self.d_px, self.d_py,
-            self.n_iterations, d_omega_x, d_omega_y
+        gpu.henon_full_track[blocks_per_grid, threads_per_block](
+            self.d_x, self.d_px, self.d_y, self.d_py,
+            self.d_iters, d_omega_x, d_omega_y
         )
-        cuda.synchronize()
 
         self.d_x.copy_to_host(self.x)
         self.d_y.copy_to_host(self.y)
         self.d_px.copy_to_host(self.px)
         self.d_py.copy_to_host(self.py)
 
-        return cpu.cartesian_to_polar(self.x, self.y, self.px, self.py)
+        return self.x, self.px, self.y, self.py
 
 
 class cpu_full_track(full_track):
@@ -673,8 +702,8 @@ class cpu_full_track(full_track):
         """
         omega_x, omega_y = modulation(self.epsilon, self.max_iters)
         # Execution
-        self.x, self.y, self.px, self.py = cpu.henon_full_track(
-            self.x, self.y, self.px, self.py,
+        self.x, self.px, self.y, self.py = cpu.henon_full_track(
+            self.x, self.px, self.y, self.py,
             self.iters, omega_x, omega_y
         )
-        return cpu.cartesian_to_polar(self.x, self.y, self.px, self.py)
+        return self.x, self.px, self.y, self.py

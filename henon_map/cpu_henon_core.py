@@ -26,7 +26,7 @@ def polar_to_cartesian(radius, alpha, theta1, theta2):
 
 
 @njit
-def cartesian_to_polar(x, y, px, py):
+def cartesian_to_polar(x, px, y, py):
     r = np.sqrt(np.power(x, 2) + np.power(y, 2) +
                 np.power(px, 2) + np.power(py, 2))
     theta1 = np.arctan2(px, x)
@@ -50,15 +50,16 @@ def henon_map(alpha, theta1, theta2, dr, step, limit, max_iterations, omega_x, o
         flag = True
         while flag:
             # Obtain cartesian position
-            x, y, px, py = polar_to_cartesian(
+            x, px, y, py = polar_to_cartesian(
                 dr * step[j], alpha[j], theta1[j], theta2[j])
+           
             for k in range(max_iterations):
                 temp1 = px + x * x - y * y
                 temp2 = py - 2 * x * y
 
                 x, px = rotation(x, temp1, omega_x[k])
                 y, py = rotation(y, temp2, omega_y[k])
-                if check_boundary(x, y, px, py, limit):
+                if check_boundary(x, px, y, py, limit):
                     step[j] -= 1
                     flag = False
                     break
@@ -83,9 +84,9 @@ def henon_map_2D(x, p, n_iters, limit, max_iterations, omega):
     return x, p, n_iters
 
 
-@njit(parallel=True)
-def henon_full_track(x, y, px, py, n_iterations, omega_x, omega_y):
-    for j in prange(x.shape[2]):
+#@njit(parallel=True)
+def henon_full_track(x, px, y, py, n_iterations, omega_x, omega_y):
+    for j in range(x.shape[1]):
         for k in range(1, n_iterations[j]):
             temp = (px[k - 1][j]
                     + x[k - 1][j] * x[k - 1][j] - y[k - 1][j] * y[k - 1][j])
@@ -95,11 +96,37 @@ def henon_full_track(x, y, px, py, n_iterations, omega_x, omega_y):
                     - 2 * x[k - 1][j] * y[k - 1][j])
             y[k][j], py[k][j] = rotation(y[k - 1][j], temp, omega_y[k - 1])
             
-    return x, y, px, py
+    return x, px, y, py
+
+
+#@njit(parallel=True)
+def accumulate_and_return(r, alpha, th1, th2, n_sectors):
+    i_1 = (((th1 + np.pi) / (np.pi * 2)) * n_sectors).astype(np.int)
+    i_2 = (((th2 + np.pi) / (np.pi * 2)) * n_sectors).astype(np.int)
+    
+    result = np.empty(r.shape[1])
+    matrices = np.empty((r.shape[1], n_sectors, n_sectors))
+
+    for j in range(r.shape[1]):
+        matrix = [[[] for a in range(n_sectors)]
+                  for b in range(n_sectors)]
+        
+        for k in range(r.shape[0]):
+            matrix[i_1[k, j]][i_2[k, j]].append(r[k, j])
+        
+        for a in range(n_sectors):
+            for b in range(n_sectors):
+                matrix[a][b] = np.average(matrix[a][b])
+    
+        matrix = np.asarray(matrix)
+        result[j] = np.nanmean(np.power(matrix, 4))
+        matrices[j,:,:] = matrix
+    
+    return matrices, result
 
 
 @njit(parallel=True)
-def henon_partial_track(x, y, px, py, steps, limit, max_iterations, omega_x, omega_y):
+def henon_partial_track(x, px, y, py, steps, limit, max_iterations, omega_x, omega_y):
     for j in prange(len(x)):
         for k in range(max_iterations):
             temp1 = (px[j] + x[j] * x[j] - y[j] * y[j])
@@ -114,4 +141,4 @@ def henon_partial_track(x, y, px, py, steps, limit, max_iterations, omega_x, ome
                 py[j] = 0.0
                 break
             steps[j] += 1
-    return x, y, px, py, steps
+    return x, px, y, py, steps

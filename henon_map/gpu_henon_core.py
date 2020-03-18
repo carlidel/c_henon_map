@@ -25,8 +25,43 @@ def polar_to_cartesian(radius, alpha, theta1, theta2):
     return x, px, y, py
 
 
+@cuda.jit
+def dummy_polar_to_cartesian(radius, alpha, theta1, theta2, x, px, y, py):
+    j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
+    if j < radius.shape[0]:
+        x[j], px[j], y[j], py[j] = polar_to_cartesian(
+            radius[j], alpha[j], theta1[j], theta2[j])
+
+
+def actual_polar_to_cartesian(radius, alpha, theta1, theta2):
+    x = np.zeros(radius.shape)
+    px = np.zeros(radius.shape)
+    y = np.zeros(radius.shape)
+    py = np.zeros(radius.shape)
+    d_x = cuda.to_device(np.zeros(radius.shape))
+    d_y = cuda.to_device(np.zeros(radius.shape))
+    d_px = cuda.to_device(np.zeros(radius.shape))
+    d_py = cuda.to_device(np.zeros(radius.shape))
+
+    d_radius = cuda.to_device(np.ascontiguousarray(radius))
+    d_alpha = cuda.to_device(np.ascontiguousarray(alpha))
+    d_theta1 = cuda.to_device(np.ascontiguousarray(theta1))
+    d_theta2 = cuda.to_device(np.ascontiguousarray(theta2))
+
+    dummy_polar_to_cartesian[radius.size//1024 + 1,
+                             1024](d_radius, d_alpha, d_theta1, d_theta2, d_x, d_px, d_y, d_py)
+
+    d_x.copy_to_host(x)
+    d_px.copy_to_host(px)
+    d_y.copy_to_host(y)
+    d_py.copy_to_host(py)
+    return x, px, y, py
+
+
+
+
 @cuda.jit(device=True)
-def cartesian_to_polar(x, y, px, py):
+def cartesian_to_polar(x, px, y, py):
     r = np.sqrt(np.power(x, 2) + np.power(y, 2) +
                 np.power(px, 2) + np.power(py, 2))
     theta1 = np.arctan2(px, x) + np.pi
@@ -82,7 +117,7 @@ def henon_map(c_alpha, c_theta1, c_theta2, c_dr, step, c_limit, c_max_iterations
         
         step_local[i] = step[j] + 1
         while True:
-            x[i], y[i], px[i], py[i] = polar_to_cartesian(
+            x[i], px[i], y[i], py[i] = polar_to_cartesian(
                 dr[0] * step_local[i], alpha[i], theta1[i], theta2[i])
             for k in range(max_iterations[0]):
                 temp1[i] = px[i] + x[i] * x[i] - y[i] * y[i]
@@ -90,7 +125,7 @@ def henon_map(c_alpha, c_theta1, c_theta2, c_dr, step, c_limit, c_max_iterations
 
                 x[i], px[i] = rotation(x[i], temp1[i], omega_x[k])
                 y[i], py[i] = rotation(y[i], temp2[i], omega_y[k])
-                if check_boundary(x[i], y[i], px[i], py[i], limit[0]):
+                if check_boundary(x[i], px[i], y[i], py[i], limit[0]):
                     step_local[i] -= 1
                     cuda.syncthreads()
                     step[j] = step_local[i]
@@ -99,25 +134,25 @@ def henon_map(c_alpha, c_theta1, c_theta2, c_dr, step, c_limit, c_max_iterations
 
 
 @cuda.jit
-def henon_full_track(x, y, px, py, n_iterations, omega_x, omega_y):
+def henon_full_track(x, px, y, py, n_iterations, omega_x, omega_y):
     i = cuda.threadIdx.x
     j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
 
     temp = cuda.shared.array(shape=(512), dtype=numba.float64)
-    cuda.syncthreads()
-
-    for k in range(1, n_iterations[j]):
-        temp[i] = (px[k - 1][j] 
-            + x[k - 1][j] * x[k - 1][j] - y[k - 1][j] * y[k - 1][j])
-        x[k][j], px[k][j] = rotation(x[k - 1][j], temp[i], omega_x[k - 1]) 
-        
-        temp[i] = (py[k - 1][j] 
-            - 2 * x[k - 1][j] * y[k - 1][j])
-        y[k][j], py[k][j] = rotation(y[k - 1][j], temp[i], omega_y[k - 1])
+    
+    if j < x.shape[1]:
+        for k in range(1, n_iterations[j]):
+            temp[i] = (px[k - 1][j] 
+                + x[k - 1][j] * x[k - 1][j] - y[k - 1][j] * y[k - 1][j])
+            x[k][j], px[k][j] = rotation(x[k - 1][j], temp[i], omega_x[k - 1]) 
+            
+            temp[i] = (py[k - 1][j] 
+                - 2 * x[k - 1][j] * y[k - 1][j])
+            y[k][j], py[k][j] = rotation(y[k - 1][j], temp[i], omega_y[k - 1])
 
 
 @cuda.jit
-def henon_partial_track(g_x, g_y, g_px, g_py, g_steps, limit, max_iterations, omega_x, omega_y):
+def henon_partial_track(g_x, g_px, g_y, g_py, g_steps, limit, max_iterations, omega_x, omega_y):
     i = cuda.threadIdx.x
     j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
 
@@ -127,33 +162,34 @@ def henon_partial_track(g_x, g_y, g_px, g_py, g_steps, limit, max_iterations, om
     py = cuda.shared.array(shape=(512), dtype=numba.float64)
     temp1 = cuda.shared.array(shape=(512), dtype=numba.float64)
     temp2 = cuda.shared.array(shape=(512), dtype=numba.float64)
-    steps = cuda.shard.array(shape=(512), dtype=numba.int32)
+    steps = cuda.shared.array(shape=(512), dtype=numba.int32)
 
-    x[i] = g_x[j]
-    y[i] = g_x[j]
-    px[i] = g_px[j]
-    py[i] = g_py[j]
-    steps[i] = g_steps[j]
+    if(j < g_x.shape[0]):
+        x[i] = g_x[j]
+        y[i] = g_y[j]
+        px[i] = g_px[j]
+        py[i] = g_py[j]
+        steps[i] = g_steps[j]
 
-    cuda.syncthreads()
+        cuda.syncthreads()
 
-    for k in range(max_iterations):
-        temp1[i] = (px[i] + x[i] * x[i] - y[i] * y[i])
-        temp2[i] = (py[i] - 2 * x[i] * y[i])
+        for k in range(max_iterations):
+            temp1[i] = (px[i] + x[i] * x[i] - y[i] * y[i])
+            temp2[i] = (py[i] - 2 * x[i] * y[i])
 
-        x[i], px[i] = rotation(x[i], temp1[i], omega_x[k])
-        y[i], py[i] = rotation(y[i], temp2[i], omega_y[k])
-        if(check_boundary(x[i], px[i], y[i], py[i], limit) or (x[i] == 0.0 and px[i] == 0.0 and y[i] == 0.0 and py[i] == 0.0)):
-            x[i] = 0.0
-            px[i] = 0.0
-            y[i] = 0.0
-            py[i] = 0.0
-            break
-        steps[j] += 1
+            x[i], px[i] = rotation(x[i], temp1[i], omega_x[k])
+            y[i], py[i] = rotation(y[i], temp2[i], omega_y[k])
+            if(check_boundary(x[i], px[i], y[i], py[i], limit) or (x[i] == 0.0 and px[i] == 0.0 and y[i] == 0.0 and py[i] == 0.0)):
+                x[i] = 0.0
+                px[i] = 0.0
+                y[i] = 0.0
+                py[i] = 0.0
+                break
+            steps[i] += 1
 
-    cuda.syncthreads()
-    g_x[j] = x[i]
-    g_y[j] = x[i]
-    g_px[j] = px[i]
-    g_py[j] = py[i]
-    g_steps[j] = steps[i]
+        cuda.syncthreads()
+        g_x[j] = x[i]
+        g_y[j] = y[i]
+        g_px[j] = px[i]
+        g_py[j] = py[i]
+        g_steps[j] = steps[i]
