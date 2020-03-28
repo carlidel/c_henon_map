@@ -130,7 +130,7 @@ class partial_track(object):
         return np.power(self.r[self.r != 0.0], 2) / 2
 
     @staticmethod
-    def generate_instance(radius, alpha, theta1, theta2, epsilon):
+    def generate_instance(radius, alpha, theta1, theta2, epsilon, cuda_device=None):
         """Generate an instance of the engine.
         
         Parameters
@@ -151,7 +151,8 @@ class partial_track(object):
         class instance
             optimized class instance
         """        
-        cuda_device = cuda.is_available()
+        if cuda_device == None:
+            cuda_device = cuda.is_available()
         if cuda_device:
             return gpu_partial_track(radius, alpha, theta1, theta2, epsilon)
         else:
@@ -342,7 +343,7 @@ class radial_scan(object):
         return np.transpose(np.asarray(self.container)) * self.dr
 
     @staticmethod
-    def generate_instance(dr, alpha, theta1, theta2, epsilon):
+    def generate_instance(dr, alpha, theta1, theta2, epsilon, cuda_device=None):
         """init an henon optimized radial tracker!
         
         Parameters
@@ -363,7 +364,8 @@ class radial_scan(object):
         Optimized instance
             optimized instance of the class (CPU or GPU)
         """
-        cuda_device = cuda.is_available()
+        if cuda_device == None:
+            cuda_device = cuda.is_available()
         if cuda_device:
             return gpu_radial_scan(dr, alpha, theta1, theta2, epsilon)
         else:
@@ -572,12 +574,12 @@ class full_track(object):
         radius, alpha, th1, th2 = cpu.cartesian_to_polar(
             self.x, self.px, self.y, self.py)
         
-        self.matrices, result = cpu.accumulate_and_return(radius, alpha, th1, th2, n_sectors)
+        self.count_matrix, self.matrices, result = cpu.accumulate_and_return(radius, alpha, th1, th2, n_sectors)
         
         return result
 
     @staticmethod
-    def generate_instance(radius, alpha, theta1, theta2, iters, epsilon):
+    def generate_instance(radius, alpha, theta1, theta2, iters, epsilon, cuda_device=None):
         """Generate an instance of the class
         
         Parameters
@@ -600,7 +602,8 @@ class full_track(object):
         class instance
             optimized class instance
         """        
-        cuda_device = cuda.is_available()
+        if cuda_device == None:
+            cuda_device = cuda.is_available()
         if cuda_device:
             return gpu_full_track(radius, alpha, theta1, theta2, iters, epsilon)
         else:

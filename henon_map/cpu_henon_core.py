@@ -45,10 +45,10 @@ def dummy_map(step, max_iterations):
 
 @njit(parallel=True)
 def henon_map(alpha, theta1, theta2, dr, step, limit, max_iterations, omega_x, omega_y):
-    for j in prange(alpha.shape[0]):
+    for j in prange(alpha.size):
         step[j] += 1
         flag = True
-        while flag:
+        while True:
             # Obtain cartesian position
             x, px, y, py = polar_to_cartesian(
                 dr * step[j], alpha[j], theta1[j], theta2[j])
@@ -65,6 +65,8 @@ def henon_map(alpha, theta1, theta2, dr, step, limit, max_iterations, omega_x, o
                     break
             if flag:
                 step[j] += 1
+                continue
+            break
     return step
 
 
@@ -84,9 +86,9 @@ def henon_map_2D(x, p, n_iters, limit, max_iterations, omega):
     return x, p, n_iters
 
 
-#@njit(parallel=True)
+@njit(parallel=True)
 def henon_full_track(x, px, y, py, n_iterations, omega_x, omega_y):
-    for j in range(x.shape[1]):
+    for j in prange(x.shape[1]):
         for k in range(1, n_iterations[j]):
             temp = (px[k - 1][j]
                     + x[k - 1][j] * x[k - 1][j] - y[k - 1][j] * y[k - 1][j])
@@ -106,6 +108,7 @@ def accumulate_and_return(r, alpha, th1, th2, n_sectors):
     
     result = np.empty(r.shape[1])
     matrices = np.empty((r.shape[1], n_sectors, n_sectors))
+    count = np.empty((r.shape[1], n_sectors, n_sectors), dtype=np.int)
 
     for j in range(r.shape[1]):
         matrix = [[[] for a in range(n_sectors)]
@@ -116,13 +119,14 @@ def accumulate_and_return(r, alpha, th1, th2, n_sectors):
         
         for a in range(n_sectors):
             for b in range(n_sectors):
+                count[j][a][b] = len(matrix[a][b])
                 matrix[a][b] = np.average(matrix[a][b])
     
         matrix = np.asarray(matrix)
         result[j] = np.nanmean(np.power(matrix, 4))
         matrices[j,:,:] = matrix
     
-    return matrices, result
+    return count, matrices, result
 
 
 @njit(parallel=True)
