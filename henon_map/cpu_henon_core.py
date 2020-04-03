@@ -101,28 +101,32 @@ def henon_full_track(x, px, y, py, n_iterations, omega_x, omega_y):
     return x, px, y, py
 
 
-#@njit(parallel=True)
+@njit(parallel=True)
 def accumulate_and_return(r, alpha, th1, th2, n_sectors):
-    i_1 = (((th1 + np.pi) / (np.pi * 2)) * n_sectors).astype(np.int)
-    i_2 = (((th2 + np.pi) / (np.pi * 2)) * n_sectors).astype(np.int)
+    tmp_1 = ((th1 + np.pi) / (np.pi * 2)) * n_sectors
+    tmp_2 = ((th2 + np.pi) / (np.pi * 2)) * n_sectors
     
+    i_1 = np.empty(tmp_1.shape, dtype=np.int32)
+    i_2 = np.empty(tmp_2.shape, dtype=np.int32)
+
+    for i in prange(i_1.shape[0]):
+        for j in range(i_1.shape[1]):
+            i_1[i, j] = int(tmp_1[i, j])
+            i_2[i, j] = int(tmp_2[i, j])
+
     result = np.empty(r.shape[1])
     matrices = np.empty((r.shape[1], n_sectors, n_sectors))
-    count = np.empty((r.shape[1], n_sectors, n_sectors), dtype=np.int)
+    count = np.zeros((r.shape[1], n_sectors, n_sectors), dtype=np.int32)
 
-    for j in range(r.shape[1]):
-        matrix = [[[] for a in range(n_sectors)]
-                  for b in range(n_sectors)]
+    for j in prange(r.shape[1]):
+        matrix = np.zeros((n_sectors, n_sectors))
         
         for k in range(r.shape[0]):
-            matrix[i_1[k, j]][i_2[k, j]].append(r[k, j])
+            matrix[i_1[k, j], i_2[k, j]] = (
+                (matrix[i_1[k, j], i_2[k, j]] * count[j, i_1[k, j], i_2[k, j]] + r[k, j]) / (count[j, i_1[k, j], i_2[k, j]] + 1)
+            )
+            count[j, i_1[k, j], i_2[k, j]] += 1
         
-        for a in range(n_sectors):
-            for b in range(n_sectors):
-                count[j][a][b] = len(matrix[a][b])
-                matrix[a][b] = np.average(matrix[a][b])
-    
-        matrix = np.asarray(matrix)
         result[j] = np.nanmean(np.power(matrix, 4))
         matrices[j,:,:] = matrix
     
