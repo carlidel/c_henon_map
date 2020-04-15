@@ -5,6 +5,7 @@ import numpy as np
 from . import gpu_henon_core as gpu
 from . import cpu_henon_core as cpu
 
+from .cpu_henon_core import recursive_accumulation as cpu_accumulate_and_return
 
 def polar_to_cartesian(radius, alpha, theta1, theta2):
     return cpu.polar_to_cartesian(radius, alpha, theta1, theta2)
@@ -577,6 +578,17 @@ class full_track(object):
         self.count_matrix, self.matrices, result = cpu.accumulate_and_return(radius, alpha, th1, th2, n_sectors)
         
         return result
+    
+    def recursive_accumulation(self):
+        """Executes a recursive accumulation in order to test lower binning values.
+        N.B. execute "accumulate_and_return first!!!"
+
+        Returns
+        -------
+        tuple of lists
+            Tuple of lists with (count_matrices, averages, results)
+        """
+        return cpu.recursive_accumulation(self.count_matrix, self.matrices)        
 
     @staticmethod
     def generate_instance(radius, alpha, theta1, theta2, iters, epsilon, cuda_device=None):

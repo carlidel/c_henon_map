@@ -133,6 +133,28 @@ def accumulate_and_return(r, alpha, th1, th2, n_sectors):
     return count, matrices, result
 
 
+def recursive_accumulation(count, matrices):
+    n_sectors = count.shape[1]
+    c = []
+    m = []
+    r = []
+    c.append(count.copy())
+    m.append(matrices.copy())
+    r.append(np.nanmean(np.power(matrices, 4), axis=(1,2)))
+    while n_sectors >= 2 and n_sectors % 2 == 0:
+        matrices *= count
+        count = np.nansum(count.reshape(
+            (count.shape[0], n_sectors//2, 2, n_sectors//2, 2)), axis=(2, 4))
+        matrices = np.nansum(matrices.reshape(
+            (matrices.shape[0], n_sectors//2, 2, n_sectors//2, 2)), axis=(2, 4)) / count
+        result = np.nanmean(np.power(matrices, 4), axis=(1,2))
+        c.append(count.copy())
+        m.append(matrices.copy())
+        r.append(result.copy())
+        n_sectors = n_sectors // 2
+    return c, m, r
+
+
 @njit(parallel=True)
 def henon_partial_track(x, px, y, py, steps, limit, max_iterations, omega_x, omega_y):
     for j in prange(len(x)):
