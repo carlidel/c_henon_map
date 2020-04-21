@@ -344,7 +344,7 @@ class radial_scan(object):
         return np.transpose(np.asarray(self.container)) * self.dr
 
     @staticmethod
-    def generate_instance(dr, alpha, theta1, theta2, epsilon, cuda_device=None):
+    def generate_instance(dr, alpha, theta1, theta2, epsilon, starting_position=0.0, cuda_device=None):
         """init an henon optimized radial tracker!
         
         Parameters
@@ -368,15 +368,16 @@ class radial_scan(object):
         if cuda_device == None:
             cuda_device = cuda.is_available()
         if cuda_device:
-            return gpu_radial_scan(dr, alpha, theta1, theta2, epsilon)
+            return gpu_radial_scan(dr, alpha, theta1, theta2, epsilon, starting_position)
         else:
-            return cpu_radial_scan(dr, alpha, theta1, theta2, epsilon)
+            return cpu_radial_scan(dr, alpha, theta1, theta2, epsilon, starting_position)
 
 
 class gpu_radial_scan(radial_scan):
-    def __init__(self, dr, alpha, theta1, theta2, epsilon):
+    def __init__(self, dr, alpha, theta1, theta2, epsilon, starting_position=0.0):
         assert alpha.size == theta1.size
         assert alpha.size == theta2.size
+        assert starting_position >= 0.0
 
         # save data as members
         self.dr = dr
@@ -385,9 +386,10 @@ class gpu_radial_scan(radial_scan):
         self.theta2 = theta2
         self.epsilon = epsilon
         self.limit = 100.0
+        self.starting_position = starting_position
 
         # prepare data
-        self.step = np.zeros(alpha.shape, dtype=np.int)
+        self.step = np.ones(alpha.shape, dtype=np.int) * int(starting_position / dr)
 
         # make container
         self.container = []
@@ -402,7 +404,8 @@ class gpu_radial_scan(radial_scan):
         """Resets the engine.
         """
         self.container = []
-        self.step = np.zeros(self.alpha.shape, dtype=np.int)
+        self.step = np.ones(alpha.shape, dtype=np.int) * \
+            int(starting_position / dr)
         self.d_step = cuda.to_device(self.step)
 
     def compute(self, sample_list):
@@ -467,7 +470,7 @@ class gpu_radial_scan(radial_scan):
 
 
 class cpu_radial_scan(radial_scan):
-    def __init__(self, dr, alpha, theta1, theta2, epsilon):
+    def __init__(self, dr, alpha, theta1, theta2, epsilon, starting_position=0.0):
         assert alpha.size == theta1.size
         assert alpha.size == theta2.size
 
@@ -478,9 +481,10 @@ class cpu_radial_scan(radial_scan):
         self.theta2 = theta2
         self.epsilon = epsilon
         self.limit = 100.0
+        self.starting_position = starting_position
 
         # prepare data
-        self.step = np.zeros(alpha.shape, dtype=np.int)
+        self.step = np.ones(alpha.shape, dtype=np.int) * int(starting_position / dr)
 
         # make container
         self.container = []
@@ -489,7 +493,8 @@ class cpu_radial_scan(radial_scan):
         """Resets the engine.
         """
         self.container = []
-        self.step = np.zeros(self.alpha.shape, dtype=np.int)
+        self.step = np.ones(alpha.shape, dtype=np.int) * \
+            int(starting_position / dr)
 
     def compute(self, sample_list):
         """Compute the tracking
