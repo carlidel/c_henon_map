@@ -119,12 +119,16 @@ def accumulate_and_return(r, alpha, th1, th2, n_sectors):
     count = np.zeros((r.shape[1], n_sectors, n_sectors), dtype=np.int32)
 
     for j in prange(r.shape[1]):
-        matrix = np.zeros((n_sectors, n_sectors))
-        
+        matrix = np.zeros((n_sectors, n_sectors)) * np.nan
+
         for k in range(r.shape[0]):
-            matrix[i_1[k, j], i_2[k, j]] = (
-                (matrix[i_1[k, j], i_2[k, j]] * count[j, i_1[k, j], i_2[k, j]] + r[k, j]) / (count[j, i_1[k, j], i_2[k, j]] + 1)
-            )
+            if count[j, i_1[k, j], i_2[k, j]] == 0:
+                matrix[i_1[k, j], i_2[k, j]] = r[k, j]
+            else:
+                matrix[i_1[k, j], i_2[k, j]] = (
+                    (matrix[i_1[k, j], i_2[k, j]] * count[j, i_1[k, j],
+                                                          i_2[k, j]] + r[k, j]) / (count[j, i_1[k, j], i_2[k, j]] + 1)
+                )
             count[j, i_1[k, j], i_2[k, j]] += 1
         
         result[j] = np.nanmean(np.power(matrix, 4))
@@ -138,6 +142,7 @@ def recursive_accumulation(count, matrices):
     c = []
     m = []
     r = []
+    validity = []
     c.append(count.copy())
     m.append(matrices.copy())
     r.append(np.nanmean(np.power(matrices, 4), axis=(1,2)))
@@ -151,8 +156,9 @@ def recursive_accumulation(count, matrices):
         c.append(count.copy())
         m.append(matrices.copy())
         r.append(result.copy())
+        validity.append(np.logical_not(np.any(np.isnan(matrices), axis=(1,2))))
         n_sectors = n_sectors // 2
-    return c, m, r
+    return c, m, r, np.asarray(validity, dtype=np.bool)
 
 
 @njit(parallel=True)
