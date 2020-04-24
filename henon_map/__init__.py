@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 from numba import cuda, jit, njit
 import numpy as np
+from tqdm import tqdm
 
 from . import gpu_henon_core as gpu
 from . import cpu_henon_core as cpu
@@ -650,14 +651,6 @@ class gpu_full_track(full_track):
         self.py = np.zeros((self.max_iters, alpha.size))
 
         self.x[0, :], self.px[0, :], self.y[0, :], self.py[0, :] = gpu.actual_polar_to_cartesian(radius, alpha, theta1, theta2)
-
-        # load vectors to gpu
-        
-        self.d_x = cuda.to_device(self.x)
-        self.d_px = cuda.to_device(self.px)
-        self.d_y = cuda.to_device(self.y)
-        self.d_py = cuda.to_device(self.py)
-        self.d_iters = cuda.to_device(self.iters)
     
     def compute(self):
         """Compute the tracking
@@ -667,6 +660,15 @@ class gpu_full_track(full_track):
         tuple of 2D ndarray [n_iterations, n_samples]
             (radius, alpha, theta1, theta2)
         """
+
+        # load vectors to gpu
+
+        self.d_x = cuda.to_device(self.x)
+        self.d_px = cuda.to_device(self.px)
+        self.d_y = cuda.to_device(self.y)
+        self.d_py = cuda.to_device(self.py)
+        self.d_iters = cuda.to_device(self.iters)
+
         threads_per_block = 512
         blocks_per_grid = self.alpha.size // 512 + 1
 
@@ -685,6 +687,43 @@ class gpu_full_track(full_track):
         self.d_y.copy_to_host(self.y)
         self.d_px.copy_to_host(self.px)
         self.d_py.copy_to_host(self.py)
+
+        return self.x, self.px, self.y, self.py
+
+    def new_compute(self):
+        """Compute the tracking (new technique)
+        
+        Returns
+        -------
+        tuple of 2D ndarray [n_iterations, n_samples]
+            (radius, alpha, theta1, theta2)
+        """
+        threads_per_block = 1024
+        blocks_per_grid = self.alpha.size // 1024 + 1
+
+        omega_x, omega_y = modulation(self.epsilon, self.max_iters)
+        the_step = np.array([0], dtype=np.int)
+
+        d_omega_x = cuda.to_device(omega_x)
+        d_omega_y = cuda.to_device(omega_y)
+        d_the_step = cuda.to_device(the_step)
+
+        self.d_x = cuda.to_device(self.x[0,:])
+        self.d_px = cuda.to_device(self.px[0,:])
+        self.d_y = cuda.to_device(self.y[0,:])
+        self.d_py = cuda.to_device(self.py[0, :])
+
+        # Execution
+        for i in range(self.max_iters):
+            gpu.henon_single_step[blocks_per_grid, threads_per_block](
+                self.d_x, self.d_px, self.d_y, self.d_py,
+                d_the_step, d_omega_x, d_omega_y
+            )
+            self.d_x.copy_to_host(self.x[i, :])
+            self.d_y.copy_to_host(self.y[i, :])
+            self.d_px.copy_to_host(self.px[i, :])
+            self.d_py.copy_to_host(self.py[i, :])
+            d_the_step.copy_to_host(the_step)
 
         return self.x, self.px, self.y, self.py
 

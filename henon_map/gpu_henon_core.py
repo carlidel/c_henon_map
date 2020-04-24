@@ -134,6 +134,25 @@ def henon_map(c_alpha, c_theta1, c_theta2, c_dr, step, c_limit, c_max_iterations
 
 
 @cuda.jit
+def henon_single_step(x, px, y, py, the_step, omega_x, omega_y):
+    i = cuda.threadIdx.x
+    j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
+
+    temp1 = cuda.shared.array(shape=(1024), dtype=numba.float64)
+    temp2 = cuda.shared.array(shape=(1024), dtype=numba.float64)
+
+    if j < x.shape[0]:
+        temp1[i] = (px[j] + x[j] * x[j] - y[j] * y[j])
+        temp2[i] = (py[j] - 2 * x[j] * y[j])
+
+        x[j], px[j] = rotation(x[j], temp1[i], omega_x[the_step[0]])
+        y[j], py[j] = rotation(y[j], temp2[i], omega_y[the_step[0]])
+
+        if j == 0:
+            the_step[0] += 1
+
+
+@cuda.jit
 def henon_full_track(x, px, y, py, n_iterations, omega_x, omega_y):
     i = cuda.threadIdx.x
     j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
