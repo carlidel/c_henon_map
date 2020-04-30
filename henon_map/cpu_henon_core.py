@@ -142,10 +142,13 @@ def recursive_accumulation(count, matrices):
     c = []
     m = []
     r = []
+    count = count.copy()
+    matrices = matrices.copy()
     validity = []
     c.append(count.copy())
     m.append(matrices.copy())
     r.append(np.nanmean(np.power(matrices, 4), axis=(1,2)))
+    validity.append(np.logical_not(np.any(np.isnan(matrices), axis=(1, 2))))
     while n_sectors >= 2 and n_sectors % 2 == 0:
         matrices *= count
         count = np.nansum(count.reshape(
