@@ -637,6 +637,7 @@ class gpu_radial_scan(radial_scan):
 
         # computation
         maximum = np.max(self.container)
+        minimum = np.min(self.container)
 
         self.steps = np.zeros((self.alpha.shape[0], maximum))
         rs = (np.arange(maximum) + 1) * self.dr
