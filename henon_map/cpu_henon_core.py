@@ -71,6 +71,33 @@ def henon_map(alpha, theta1, theta2, dr, step, limit, max_iterations, omega_x, o
 
 
 @njit(parallel=True)
+def henon_map_to_the_end(c_x, c_px, c_y, c_py, limit, max_iterations, omega_x, omega_y, bool_mask):
+    steps = np.zeros_like(c_x)
+    for j in prange(len(steps)):
+        if bool_mask[j]:
+            i = int(steps[j])
+            x = c_x[j]
+            px = c_px[j]
+            y = c_y[j]
+            py = c_py[j]
+
+            while not (check_boundary(x, px, y, py, limit) or steps[j] > max_iterations):
+                temp1 = px + x * x - y * y
+                temp2 = py - 2 * x * y
+                
+                x, px = rotation(x, temp1, omega_x[i])
+                y, py = rotation(y, temp2, omega_y[i])
+                
+                i += 1
+                steps[j] += 1
+            i -= 1
+            steps[j] -= 1
+        else:
+            steps[j] = max_iterations
+    return steps
+
+
+@njit(parallel=True)
 def henon_map_2D(x, p, n_iters, limit, max_iterations, omega):
     for j in prange(x.size):
         for k in range(max_iterations):

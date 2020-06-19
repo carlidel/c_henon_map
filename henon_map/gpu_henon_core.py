@@ -116,7 +116,7 @@ def henon_map(c_alpha, c_theta1, c_theta2, c_dr, step, c_limit, c_max_iterations
         theta2[i] = c_theta2[j]
         
         step_local[i] = step[j] + 1
-        while True:
+        while j < step.shape[0]:
             x[i], px[i], y[i], py[i] = polar_to_cartesian(
                 dr[0] * step_local[i], alpha[i], theta1[i], theta2[i])
             for k in range(max_iterations[0]):
@@ -131,6 +131,56 @@ def henon_map(c_alpha, c_theta1, c_theta2, c_dr, step, c_limit, c_max_iterations
                     step[j] = step_local[i]
                     return
             step_local[i] += 1
+
+
+@cuda.jit
+def henon_map_to_the_end(c_x, c_px, c_y, c_py, steps, c_limit, c_max_iterations, omega_x, omega_y, bool_mask):
+    i = cuda.threadIdx.x
+    j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
+
+    # const... I hope...
+    limit = cuda.shared.array(shape=(1), dtype=numba.float64)
+    max_iterations = cuda.shared.array(shape=(1), dtype=numba.int32)
+    if i == 0:
+        limit[0] = c_limit
+        max_iterations[0] = c_max_iterations
+
+    # allocate shared memory
+    x = cuda.shared.array(shape=(512), dtype=numba.float64)
+    px = cuda.shared.array(shape=(512), dtype=numba.float64)
+    y = cuda.shared.array(shape=(512), dtype=numba.float64)
+    py = cuda.shared.array(shape=(512), dtype=numba.float64)
+    
+    temp1 = cuda.shared.array(shape=(512), dtype=numba.float64)
+    temp2 = cuda.shared.array(shape=(512), dtype=numba.float64)
+    
+    # begin with the radial optimized loop
+    while j < steps.shape[0]: # Are we still inside the valid loop?
+        
+        if steps[j] == 0: # Are we using a new initial condition?
+            # filling the new initial condition
+            x[i] = c_x[j]
+            px[i] = c_px[j]
+            y[i] = c_y[j]
+            py[i] = c_py[j]
+            
+        # Henon map iteration
+        temp1[i] = px[i] + x[i] * x[i] - y[i] * y[i]
+        temp2[i] = py[i] - 2 * x[i] * y[i]
+
+        x[i], px[i] = rotation(x[i], temp1[i], omega_x[steps[j]])
+        y[i], py[i] = rotation(y[i], temp2[i], omega_y[steps[j]])
+        
+        steps[j] += 1
+
+        # Have we lost the particle OR have we hit the limit OR was that useless?
+        if (check_boundary(x[i], px[i], y[i], py[i], limit[0]) or steps[j] > max_iterations[0] or (not bool_mask[j])):
+            # Remove last step
+            steps[j] -= 1
+            # Block skip to next initial condition!
+            j += 512 * 10        
+    return
+        
 
 
 @cuda.jit
