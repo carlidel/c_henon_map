@@ -175,8 +175,11 @@ def henon_map_to_the_end(c_x, c_px, c_y, c_py, steps, c_limit, c_max_iterations,
 
         # Have we lost the particle OR have we hit the limit OR was that useless?
         if (check_boundary(x[i], px[i], y[i], py[i], limit[0]) or steps[j] > max_iterations[0] or (not bool_mask[j])):
-            # Remove last step
-            steps[j] -= 1
+            # Remove last step OR fix it
+            if bool_mask[j]:
+                steps[j] -= 1
+            else:
+                steps[j] = max_iterations[0]
             # Block skip to next initial condition!
             j += 512 * 10        
     return
