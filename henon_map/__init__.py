@@ -913,10 +913,10 @@ class gpu_full_track(full_track):
         self.max_iters = np.max(self.iters)
 
         # make containers
-        self.x = np.zeros((self.max_iters, alpha.size))
-        self.px = np.zeros((self.max_iters, alpha.size))
-        self.y = np.zeros((self.max_iters, alpha.size))
-        self.py = np.zeros((self.max_iters, alpha.size))
+        self.x = np.empty((self.max_iters, alpha.size)) * np.nan
+        self.px = np.empty((self.max_iters, alpha.size)) * np.nan
+        self.y = np.empty((self.max_iters, alpha.size)) * np.nan
+        self.py = np.empty((self.max_iters, alpha.size)) * np.nan
 
         self.x[0, :], self.px[0, :], self.y[0, :], self.py[0, :] = gpu.actual_polar_to_cartesian(radius, alpha, theta1, theta2)
     
@@ -931,14 +931,14 @@ class gpu_full_track(full_track):
 
         # load vectors to gpu
 
-        self.d_x = cuda.to_device(self.x)
-        self.d_px = cuda.to_device(self.px)
-        self.d_y = cuda.to_device(self.y)
-        self.d_py = cuda.to_device(self.py)
-        self.d_iters = cuda.to_device(self.iters)
+        d_x = cuda.to_device(self.x)
+        d_px = cuda.to_device(self.px)
+        d_y = cuda.to_device(self.y)
+        d_py = cuda.to_device(self.py)
+        d_iters = cuda.to_device(self.iters)
 
         threads_per_block = 512
-        blocks_per_grid = self.alpha.size // 512 + 1
+        blocks_per_grid = 10
 
         omega_x, omega_y = modulation(self.epsilon, self.max_iters)
 
@@ -947,14 +947,15 @@ class gpu_full_track(full_track):
 
         # Execution
         gpu.henon_full_track[blocks_per_grid, threads_per_block](
-            self.d_x, self.d_px, self.d_y, self.d_py,
-            self.d_iters, d_omega_x, d_omega_y
+            d_x, d_px, d_y, d_py,
+            d_iters, d_omega_x, d_omega_y
         )
 
-        self.d_x.copy_to_host(self.x)
-        self.d_y.copy_to_host(self.y)
-        self.d_px.copy_to_host(self.px)
-        self.d_py.copy_to_host(self.py)
+        d_x.copy_to_host(self.x)
+        d_y.copy_to_host(self.y)
+        d_px.copy_to_host(self.px)
+        d_py.copy_to_host(self.py)
+        d_iters.copy_to_host(self.iters)
 
         return self.x, self.px, self.y, self.py
 

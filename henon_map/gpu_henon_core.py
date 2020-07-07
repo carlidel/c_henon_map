@@ -13,6 +13,8 @@ def rotation(x, p, angle):
 
 @cuda.jit(device=True)
 def check_boundary(v0, v1, v2, v3, limit):
+    if (math.isnan(v0) or math.isnan(v1) or math.isnan(v2) or math.isnan(v3)):
+        return True
     return (v0 * v0 + v1 * v1 + v2 * v2 + v3 * v3 > limit)
 
 
@@ -209,18 +211,27 @@ def henon_single_step(x, px, y, py, the_step, omega_x, omega_y):
 def henon_full_track(x, px, y, py, n_iterations, omega_x, omega_y):
     i = cuda.threadIdx.x
     j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
-
+    k = 1    
     temp = cuda.shared.array(shape=(512), dtype=numba.float64)
     
-    if j < x.shape[1]:
-        for k in range(1, n_iterations[j]):
-            temp[i] = (px[k - 1][j] 
-                + x[k - 1][j] * x[k - 1][j] - y[k - 1][j] * y[k - 1][j])
-            x[k][j], px[k][j] = rotation(x[k - 1][j], temp[i], omega_x[k - 1]) 
-            
-            temp[i] = (py[k - 1][j] 
-                - 2 * x[k - 1][j] * y[k - 1][j])
-            y[k][j], py[k][j] = rotation(y[k - 1][j], temp[i], omega_y[k - 1])
+    while j < x.shape[1]:
+        temp[i] = (px[k - 1][j] 
+            + x[k - 1][j] * x[k - 1][j] - y[k - 1][j] * y[k - 1][j])
+        x[k][j], px[k][j] = rotation(x[k - 1][j], temp[i], omega_x[k - 1]) 
+        temp[i] = (py[k - 1][j] 
+            - 2 * x[k - 1][j] * y[k - 1][j])
+        y[k][j], py[k][j] = rotation(y[k - 1][j], temp[i], omega_y[k - 1])
+        if(check_boundary(x[k][j], px[k][j], y[k][j], py[k][j], 1.0) or k >= n_iterations[j]):
+            x[k][j] = np.nan
+            px[k][j] = np.nan
+            y[k][j] = np.nan
+            py[k][j] = np.nan
+            n_iterations[j] = k
+            j += 512 * 10
+            k = 1
+        else:
+            k += 1
+
 
 
 @cuda.jit
