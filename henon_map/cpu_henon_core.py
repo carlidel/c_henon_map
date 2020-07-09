@@ -13,7 +13,7 @@ def rotation(x, p, angle):
 
 @njit
 def check_boundary(v0, v1, v2, v3, limit):
-    if (np.any(np.isnan(v0)) or np.any(np.isnan(v1)) or np.any(np.isnan(v2)) or np.any(np.isnan(v3))):
+    if (math.isnan(v0) or math.isnan(v1) or math.isnan(v2) or math.isnan(v3)):
         return True
     return (v0 * v0 + v1 * v1 + v2 * v2 + v3 * v3) * 0.5 > limit
 
@@ -127,7 +127,7 @@ def henon_full_track(x, px, y, py, n_iterations, omega_x, omega_y):
                     - 2 * x[k - 1][j] * y[k - 1][j])
             y[k][j], py[k][j] = rotation(y[k - 1][j], temp, omega_y[k - 1])
 
-            if (check_boundary(x[k][j], px[k][j], y[k][j], py[k][j], 10.0)):
+            if (check_boundary(x[k][j], px[k][j], y[k][j], py[k][j], 1.0)):
                 x[k][j] = np.nan
                 px[k][j] = np.nan
                 y[k][j] = np.nan

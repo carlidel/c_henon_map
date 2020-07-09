@@ -1013,10 +1013,10 @@ class cpu_full_track(full_track):
         self.max_iters = np.max(self.iters)
 
         # make containers
-        self.x = np.zeros((self.max_iters, alpha.size))
-        self.px = np.zeros((self.max_iters, alpha.size))
-        self.y = np.zeros((self.max_iters, alpha.size))
-        self.py = np.zeros((self.max_iters, alpha.size))
+        self.x = np.zeros((self.max_iters, alpha.size)) * np.nan
+        self.px = np.zeros((self.max_iters, alpha.size)) * np.nan
+        self.y = np.zeros((self.max_iters, alpha.size)) * np.nan
+        self.py = np.zeros((self.max_iters, alpha.size)) * np.nan
 
         self.x[0, :], self.px[0, :], self.y[0, :], self.py[0, :] = cpu.polar_to_cartesian(radius, alpha, theta1, theta2)
 
