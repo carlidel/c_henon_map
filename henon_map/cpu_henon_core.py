@@ -38,13 +38,6 @@ def cartesian_to_polar(x, px, y, py):
     return r, alpha, theta1, theta2
 
 
-@njit
-def dummy_map(step, max_iterations):
-    for j in prange(step.size):
-        step[j] = max_iterations
-    return step
-
-
 @njit(parallel=True)
 def henon_map(alpha, theta1, theta2, dr, step, limit, max_iterations, omega_x, omega_y):
     for j in prange(alpha.size):

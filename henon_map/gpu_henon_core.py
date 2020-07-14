@@ -60,8 +60,6 @@ def actual_polar_to_cartesian(radius, alpha, theta1, theta2):
     return x, px, y, py
 
 
-
-
 @cuda.jit(device=True)
 def cartesian_to_polar(x, px, y, py):
     r = np.sqrt(np.power(x, 2) + np.power(y, 2) +
@@ -71,13 +69,6 @@ def cartesian_to_polar(x, px, y, py):
     alpha = np.arctan2(np.sqrt(y * y + py * py),
                        np.sqrt(x * x + px * px)) + np.pi
     return r, alpha, theta1, theta2
-
-
-@cuda.jit
-def dummy_map(step, max_iterations):
-    stride = cuda.blockDim.x * cuda.gridDim.x
-    for j in range(cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x, step.shape[0], stride):
-        step[j] = max_iterations
 
 
 @cuda.jit
@@ -152,27 +143,27 @@ def henon_map_to_the_end(c_x, c_px, c_y, c_py, steps, c_limit, c_max_iterations,
     px = cuda.shared.array(shape=(512), dtype=numba.float64)
     y = cuda.shared.array(shape=(512), dtype=numba.float64)
     py = cuda.shared.array(shape=(512), dtype=numba.float64)
-    
+
     temp1 = cuda.shared.array(shape=(512), dtype=numba.float64)
     temp2 = cuda.shared.array(shape=(512), dtype=numba.float64)
-    
+
     # begin with the radial optimized loop
-    while j < steps.shape[0]: # Are we still inside the valid loop?
-        
-        if steps[j] == 0: # Are we using a new initial condition?
+    while j < steps.shape[0]:  # Are we still inside the valid loop?
+
+        if steps[j] == 0:  # Are we using a new initial condition?
             # filling the new initial condition
             x[i] = c_x[j]
             px[i] = c_px[j]
             y[i] = c_y[j]
             py[i] = c_py[j]
-            
+
         # Henon map iteration
         temp1[i] = px[i] + x[i] * x[i] - y[i] * y[i]
         temp2[i] = py[i] - 2 * x[i] * y[i]
 
         x[i], px[i] = rotation(x[i], temp1[i], omega_x[steps[j]])
         y[i], py[i] = rotation(y[i], temp2[i], omega_y[steps[j]])
-        
+
         steps[j] += 1
 
         # Have we lost the particle OR have we hit the limit OR was that useless?
@@ -183,28 +174,8 @@ def henon_map_to_the_end(c_x, c_px, c_y, c_py, steps, c_limit, c_max_iterations,
             else:
                 steps[j] = max_iterations[0]
             # Block skip to next initial condition!
-            j += 512 * 10        
+            j += 512 * 10
     return
-        
-
-
-@cuda.jit
-def henon_single_step(x, px, y, py, the_step, omega_x, omega_y):
-    i = cuda.threadIdx.x
-    j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
-
-    temp1 = cuda.shared.array(shape=(1024), dtype=numba.float64)
-    temp2 = cuda.shared.array(shape=(1024), dtype=numba.float64)
-
-    if j < x.shape[0]:
-        temp1[i] = (px[j] + x[j] * x[j] - y[j] * y[j])
-        temp2[i] = (py[j] - 2 * x[j] * y[j])
-
-        x[j], px[j] = rotation(x[j], temp1[i], omega_x[the_step[0]])
-        y[j], py[j] = rotation(y[j], temp2[i], omega_y[the_step[0]])
-
-        if j == 0:
-            the_step[0] += 1
 
 
 @cuda.jit
@@ -231,7 +202,6 @@ def henon_full_track(x, px, y, py, n_iterations, omega_x, omega_y):
             k = 1
         else:
             k += 1
-
 
 
 @cuda.jit

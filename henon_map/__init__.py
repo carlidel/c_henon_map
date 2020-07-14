@@ -57,48 +57,10 @@ def modulation(epsilon, n_elements, first_index=0):
     omega_y = 0.201 * 2 * np.pi * (1 + epsilon * omega_sum)
     return omega_x, omega_y
 
-def henon_single_call(*args, **kwargs):
-    """Henon_map single call
-    
-    Parameters
-    ----------
-    alpha : float
-        alpha angle
-    theta1 : float
-        theta call
-    theta2 : float
-        theta angle
-    dr : float
-        step
-    epsilon : float
-        intensity
-    n_iterations : unsigned int
-        number of iterations
-    
-    Returns
-    -------
-    float
-        the radius
-    """
-    alpha, theta1, theta2, dr, epsilon, n_iterations = args
-    omega_x, omega_y = modulation(epsilon, n_iterations)
-    return dr * np.transpose(
-        np.asarray(
-            cpu.henon_map(
-                np.asarray([alpha]),
-                np.asarray([theta1]),
-                np.asarray([theta2]),
-                dr,
-                np.zeros((1), dtype=np.int),
-                100.0,
-                n_iterations,
-                omega_x, omega_y
-            )
-        )
-    )
-
 
 class partial_track(object):
+    """Kinda of a deprecated method. This class is meant to do a partial tracking (i.e. only last step is considered) of given initial condistions.
+    """
     def __init__(self):
         pass
 
@@ -257,13 +219,6 @@ class gpu_partial_track(partial_track):
         self.x, self.px, self.y, self.py = cpu.polar_to_cartesian(
             self.r_0, self.alpha_0, self.theta1_0, self.theta2_0)
 
-        # load to GPU
-        self.d_x = cuda.to_device(self.x)
-        self.d_y = cuda.to_device(self.y)
-        self.d_px = cuda.to_device(self.px)
-        self.d_py = cuda.to_device(self.py)
-        self.d_step = cuda.to_device(self.step)
-
     def compute(self, n_iterations):
         """Compute the tracking
         
@@ -275,6 +230,13 @@ class gpu_partial_track(partial_track):
         threads_per_block = 512
         blocks_per_grid = self.alpha.size // 512 + 1
 
+        # load to GPU
+        d_x = cuda.to_device(self.x)
+        d_y = cuda.to_device(self.y)
+        d_px = cuda.to_device(self.px)
+        d_py = cuda.to_device(self.py)
+        d_step = cuda.to_device(self.step)
+
         omega_x, omega_y = modulation(
             self.epsilon, n_iterations, self.total_iters)
         d_omega_x = cuda.to_device(omega_x)
@@ -282,16 +244,16 @@ class gpu_partial_track(partial_track):
 
         # Execution
         gpu.henon_partial_track[blocks_per_grid, threads_per_block](
-            self.d_x, self.d_px, self.d_y, self.d_py, self.d_step, self.limit,
+            d_x, d_px, d_y, d_py, d_step, self.limit,
             n_iterations, d_omega_x, d_omega_y
         )
         self.total_iters += n_iterations
 
-        self.d_x.copy_to_host(self.x)
-        self.d_y.copy_to_host(self.y)
-        self.d_px.copy_to_host(self.px)
-        self.d_py.copy_to_host(self.py)
-        self.d_step.copy_to_host(self.step)
+        d_x.copy_to_host(self.x)
+        d_y.copy_to_host(self.y)
+        d_px.copy_to_host(self.px)
+        d_py.copy_to_host(self.py)
+        d_step.copy_to_host(self.step)
         
         self.r, self.alpha, self.theta1, self.theta2 = cpu.cartesian_to_polar(self.x, self.px, self.y, self.py)
 
@@ -308,30 +270,55 @@ class gpu_partial_track(partial_track):
         self.theta2 = self.theta2_0
         self.step = np.zeros((self.alpha.size), dtype=np.int)
 
-        self.d_step = cuda.to_device(self.step)
-        
         self.x, self.px, self.y, self.py = gpu.actual_polar_to_cartesian(
             self.r_0, self.alpha_0, self.theta1_0, self.theta2_0)
-
-        # load to GPU
-        self.d_x = cuda.to_device(self.x)
-        self.d_y = cuda.to_device(self.y)
-        self.d_px = cuda.to_device(self.px)
-        self.d_py = cuda.to_device(self.py)
-        self.d_step = cuda.to_device(self.step)
 
         self.total_iters = 0
 
 
 class uniform_scan(object):
+    """With this class we can easly scan a uniform 4D cube of the Hénon map"""
     def __init__(self):
         pass
 
     def scan(self):
         pass
 
+    def save_values(self, f, label="SixTrack LHC no bb flat"):
+        self.label = label
+        data_dict = {
+            "label": label,
+            "top": self.top,
+            "steps": self.steps,
+            "starting_radius": self.starting_radius,
+            "times": self.times,
+            "max_turns": self.max_turns
+        }
+        with open(f, 'wb') as destination:
+            pickle.dump(data_dict, destination, protocol=4)
+
     @staticmethod
     def generate_instance(epsilon, top, steps, starting_radius=0.0001, cuda_device=None):
+        """Create an uniform scan object
+
+        Parameters
+        ----------
+        epsilon : float
+            modulation intensity
+        top : float
+            maximum radius
+        steps : int
+            steps from zero to top (becomes steps * 2 + 1)
+        starting_radius : float, optional
+            from which position we have to start with the actual computation, by default 0.0001
+        cuda_device : bool, optional
+            do we have a CUDA capable device (make it manual), by default None
+
+        Returns
+        -------
+        object
+            uniform_scan object
+        """        
         if cuda_device == None:
             cuda_device = cuda.is_available()
         if cuda_device:
@@ -340,7 +327,7 @@ class uniform_scan(object):
             return cpu_uniform_scan(epsilon, top, steps, starting_radius)
 
 
-class gpu_uniform_scan(uniform_scan):
+class cpu_uniform_scan(uniform_scan):
     def __init__(self, epsilon, top, steps, starting_radius=0.0001):
         self.epsilon = epsilon
         self.top = top
@@ -373,65 +360,124 @@ class gpu_uniform_scan(uniform_scan):
         self.times = np.zeros_like(self.X)
         self.times_f = self.times.flatten()
 
-        self.d_x = cuda.to_device(
-            np.ascontiguousarray(self.X_f[self.bool_mask_f]))
-        self.d_px = cuda.to_device(
-            np.ascontiguousarray(self.PX_f[self.bool_mask_f]))
-        self.d_y = cuda.to_device(
-            np.ascontiguousarray(self.Y_f[self.bool_mask_f]))
-        self.d_py = cuda.to_device(
-            np.ascontiguousarray(self.PY_f[self.bool_mask_f]))
-        self.d_times = cuda.to_device(
-            np.ascontiguousarray(self.times_f[self.bool_mask_f]))
-        
         self.n_samples = np.count_nonzero(self.bool_mask_f)
-
+    
     def scan(self, max_turns):
-        threads_per_block = 512
-        blocks_per_grid = self.n_samples // 512 + 1
+        """Execute a scanning of everything
 
+        Parameters
+        ----------
+        max_turns : int
+            turn limit
+
+        Returns
+        -------
+        ndarray
+            4d array with stable iterations inside
+        """
         self.max_turns = max_turns
 
-        # Dummy filling
-        self.times_f[np.logical_not(self.bool_mask_f)] = max_turns
-
-        # Actual filling
-        
         omega_x, omega_y = modulation(self.epsilon, self.n_samples)
 
-        d_omega_x = cuda.to_device(omega_x)
-        d_omega_y = cuda.to_device(omega_y)
-
+        # Filling
         start = time.time()
 
-        gpu.henon_partial_track[blocks_per_grid, threads_per_block](
-            self.d_x, self.d_px, self.d_y, self.d_py, self.d_times, 100.0, max_turns, d_omega_x, d_omega_y
-        )
+        self.times_f = cpu.henon_map_to_the_end(
+            self.X_f, self.PX_f, self.Y_f, self.PY_f, 100.0, max_turns, omega_x, omega_y, self.bool_mask_f)
 
         print("Elapsed time for execution: {} s".format(time.time() - start))
 
-        self.d_times.copy_to_host(self.times_f[self.bool_mask_f])
         self.times = self.times_f.reshape(
             (self.steps * 2 + 1, self.steps * 2 + 1, self.steps * 2 + 1, self.steps * 2 + 1))
 
         return self.times
 
-    def save_values(self, f, label="SixTrack LHC no bb flat"):
-        self.label = label
-        data_dict = {
-            "label": label,
-            "top": self.top,
-            "steps": self.steps,
-            "starting_radius": self.starting_radius,
-            "times": self.times,
-            "max_turns": self.max_turns
-        }
-        with open(f, 'wb') as destination:
-            pickle.dump(data_dict, destination, protocol=4)
 
+class gpu_uniform_scan(uniform_scan):
+    def __init__(self, epsilon, top, steps, starting_radius=0.0001):
+        self.epsilon = epsilon
+        self.top = top
+        self.steps = steps
+        self.starting_radius = starting_radius
+
+        self.coords = np.linspace(-top, top, steps * 2 + 1)
+        self.X, self.PX, self.Y, self.PY = np.meshgrid(
+            self.coords, self.coords, self.coords, self.coords,
+            indexing='ij')
+
+        self.X2 = np.power(self.X, 2)
+        self.PX2 = np.power(self.PX, 2)
+        self.Y2 = np.power(self.Y, 2)
+        self.PY2 = np.power(self.PY, 2)
+
+        self.bool_mask = (
+            self.X2
+            + self.PX2
+            + self.Y2
+            + self.PY2
+            >= np.power(starting_radius, 2)
+        )
+
+        self.X_f = self.X.flatten()
+        self.PX_f = self.PX.flatten()
+        self.Y_f = self.Y.flatten()
+        self.PY_f = self.PY.flatten()
+        self.bool_mask_f = self.bool_mask.flatten()
+
+        self.times = np.zeros_like(self.X)
+        self.times_f = self.times.flatten()
+
+        self.n_samples = np.count_nonzero(self.bool_mask_f)
+
+    def scan(self, max_turns):
+        """Execute a scanning of everything
+
+        Parameters
+        ----------
+        max_turns : int
+            turn limit
+
+        Returns
+        -------
+        ndarray
+            4d array with stable iterations inside
+        """        
+        threads_per_block = 512
+        blocks_per_grid = 10
+
+        d_x = cuda.to_device(self.X_f)
+        d_px = cuda.to_device(self.PX_f)
+        d_y = cuda.to_device(self.Y_f)
+        d_py = cuda.to_device(self.PY_f)
+        d_times = cuda.to_device(self.times_f)
+        d_bool_mask = cuda.to_device(self.bool_mask_f)
+
+        self.max_turns = max_turns
+
+        omega_x, omega_y = modulation(self.epsilon, self.n_samples)
+
+        d_omega_x = cuda.to_device(omega_x)
+        d_omega_y = cuda.to_device(omega_y)
+
+        # Filling
+        start = time.time()
+
+        gpu.henon_map_to_the_end[blocks_per_grid, threads_per_block](
+            d_x, d_px, d_y, d_py, d_times, 100.0, max_turns, d_omega_x, d_omega_y, d_bool_mask
+        )
+
+        print("Elapsed time for execution: {} s".format(time.time() - start))
+
+        d_times.copy_to_host(self.times_f)
+        self.times = self.times_f.reshape(
+            (self.steps * 2 + 1, self.steps * 2 + 1, self.steps * 2 + 1, self.steps * 2 + 1))
+
+        return self.times
 
 
 class radial_scan(object):
+    """This class contains most of the tools required for doing a precise and on point radial scan for Dynamic Aperture estimations. It's a bit messy tho...
+    """
     def __init__(self):
         pass
 
@@ -450,28 +496,9 @@ class radial_scan(object):
         Returns
         -------
         ndarray
-            the data
+            The data intended as last stable radius for the given amount of turns.
         """
         return np.transpose(np.asarray(self.container)) * self.dr
-
-    def generate_radial_block(self):
-        """Generate the radial block necessary for proper loss comparisons
-        """        
-        container = np.asarray(self.container)
-        # shape = (n_samples, max_steps_performed)
-        self.steps = self.make_the_block(container, np.asarray(self.sample_list))
-    
-    @staticmethod
-    @njit
-    def make_the_block(container, sample_list):
-        block = np.zeros((len(container[0]), np.max(container) + 1))
-        for i in prange(sample_list.shape[0]):
-            for j in range(len(container[i])):
-                if i == 0:
-                    block[j, 0 : container[i, j] + 1] = sample_list[i]
-                else:
-                    block[j, container[i - 1, j] + 1 : container[i, j] + 1] = sample_list[i]
-        return block
 
     @staticmethod
     def generate_instance(dr, alpha, theta1, theta2, epsilon, starting_position=0.0, cuda_device=None):
@@ -512,7 +539,7 @@ class radial_scan(object):
             "dr": self.dr,
             "starting_position": self.starting_position,
             "starting_step": 0, # this has its meaning in the bigger picture, trust me!
-            "values": self.steps,
+            "values": np.transpose(self.steps),
             "max_turns": self.sample_list[0],
             "min_turns": self.sample_list[-1]
         }
@@ -594,29 +621,6 @@ class gpu_radial_scan(radial_scan):
 
         return np.transpose(np.asarray(self.container)) * self.dr
 
-    def dummy_compute(self, sample_list):
-        """performs a dummy computation
-        
-        Parameters
-        ----------
-        sample_list : ndarray
-            iterations to consider
-
-        Returns
-        -------
-        ndarray
-            radius dummy results
-        """
-        # Execution
-        for sample in sample_list:
-            gpu.dummy_map[self.step.size // 512 + 1, 512](
-                self.d_step, sample)
-            cuda.synchronize()
-            self.d_step.copy_to_host(self.step)
-            self.container.append(self.step.copy())
-
-        return np.transpose(np.asarray(self.container))
-
     def block_compute(self, max_turns, min_turns):
         """Optimize block computation for ending up with a proper steps block!
 
@@ -640,14 +644,14 @@ class gpu_radial_scan(radial_scan):
         minimum = np.min(self.container)
 
         self.steps = np.zeros((self.alpha.shape[0], maximum))
-        rs = (np.arange(maximum) + 1) * self.dr
+        rs = (np.arange(maximum) + 2) * self.dr
         bool_mask = rs > (minimum * self.dr) / 2
-        
-        bb, aa = np.meshgrid(bool_mask, self.alpha)
-        rr, aa = np.meshgrid(rs, self.alpha)
-        rr, th1 = np.meshgrid(rs, self.theta1)
-        rr, th2 = np.meshgrid(rs, self.theta2)
-        
+
+        bb, aa = np.meshgrid(bool_mask, self.alpha, indexing='ij')
+        rr, aa = np.meshgrid(rs, self.alpha, indexing='ij')
+        rr, th1 = np.meshgrid(rs, self.theta1, indexing='ij')
+        rr, th2 = np.meshgrid(rs, self.theta2, indexing='ij')
+
         bb = bb.flatten()
         aa = aa.flatten()
         th1 = th1.flatten()
@@ -680,10 +684,9 @@ class gpu_radial_scan(radial_scan):
 
         d_steps.copy_to_host(steps)
         self.steps = steps.reshape(
-            (self.alpha.shape[0], rs.shape[0]))
+            (rs.shape[0], self.alpha.shape[0]))
 
         return self.steps
-                
 
 class cpu_radial_scan(radial_scan):
     def __init__(self, dr, alpha, theta1, theta2, epsilon, starting_position=0.0):
@@ -742,27 +745,6 @@ class cpu_radial_scan(radial_scan):
 
         return np.transpose(np.asarray(self.container)) * self.dr
 
-    def dummy_compute(self, sample_list):
-        """performs a dummy computation
-        
-        Parameters
-        ----------
-        sample_list : ndarray
-            iterations to consider
-
-        Returns
-        -------
-        ndarray
-            radius dummy results
-        """
-        # Execution
-        for sample in sample_list:
-            self.step = cpu.dummy_map(
-                self.alpha, self.theta1, self.theta2, self.dr, self.step, sample)
-            self.container.append(self.step.copy())
-
-        return np.transpose(np.asarray(self.container))
-
     def block_compute(self, max_turns, min_turns):
         """Optimize block computation for ending up with a proper steps block!
 
@@ -785,13 +767,13 @@ class cpu_radial_scan(radial_scan):
         maximum = np.max(self.container)
         minimum = np.min(self.container)
 
-        rs = (np.arange(maximum) + 1) * self.dr
+        rs = (np.arange(maximum) + 2) * self.dr
         bool_mask = rs > (minimum * self.dr) / 2
 
-        bb, aa = np.meshgrid(bool_mask, self.alpha)
-        rr, aa = np.meshgrid(rs, self.alpha)
-        rr, th1 = np.meshgrid(rs, self.theta1)
-        rr, th2 = np.meshgrid(rs, self.theta2)
+        bb, aa = np.meshgrid(bool_mask, self.alpha, indexing='ij')
+        rr, aa = np.meshgrid(rs, self.alpha, indexing='ij')
+        rr, th1 = np.meshgrid(rs, self.theta1, indexing='ij')
+        rr, th2 = np.meshgrid(rs, self.theta2, indexing='ij')
 
         bb = bb.flatten()
         aa = aa.flatten()
@@ -811,7 +793,7 @@ class cpu_radial_scan(radial_scan):
         )
 
         self.steps = steps.reshape(
-            (self.alpha.shape[0], rs.shape[0]))
+            (rs.shape[0], self.alpha.shape[0]))
 
         return self.steps
         
@@ -956,43 +938,6 @@ class gpu_full_track(full_track):
         d_px.copy_to_host(self.px)
         d_py.copy_to_host(self.py)
         d_iters.copy_to_host(self.iters)
-
-        return self.x, self.px, self.y, self.py
-
-    def new_compute(self):
-        """Compute the tracking (new technique)
-        
-        Returns
-        -------
-        tuple of 2D ndarray [n_iterations, n_samples]
-            (radius, alpha, theta1, theta2)
-        """
-        threads_per_block = 1024
-        blocks_per_grid = self.alpha.size // 1024 + 1
-
-        omega_x, omega_y = modulation(self.epsilon, self.max_iters)
-        the_step = np.array([0], dtype=np.int)
-
-        d_omega_x = cuda.to_device(omega_x)
-        d_omega_y = cuda.to_device(omega_y)
-        d_the_step = cuda.to_device(the_step)
-
-        self.d_x = cuda.to_device(self.x[0,:])
-        self.d_px = cuda.to_device(self.px[0,:])
-        self.d_y = cuda.to_device(self.y[0,:])
-        self.d_py = cuda.to_device(self.py[0, :])
-
-        # Execution
-        for i in range(self.max_iters):
-            gpu.henon_single_step[blocks_per_grid, threads_per_block](
-                self.d_x, self.d_px, self.d_y, self.d_py,
-                d_the_step, d_omega_x, d_omega_y
-            )
-            self.d_x.copy_to_host(self.x[i, :])
-            self.d_y.copy_to_host(self.y[i, :])
-            self.d_px.copy_to_host(self.px[i, :])
-            self.d_py.copy_to_host(self.py[i, :])
-            d_the_step.copy_to_host(the_step)
 
         return self.x, self.px, self.y, self.py
 
