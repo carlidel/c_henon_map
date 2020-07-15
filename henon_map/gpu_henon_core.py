@@ -161,8 +161,8 @@ def henon_map_to_the_end(c_x, c_px, c_y, c_py, steps, c_limit, c_max_iterations,
         temp1[i] = px[i] + x[i] * x[i] - y[i] * y[i]
         temp2[i] = py[i] - 2 * x[i] * y[i]
 
-        x[i], px[i] = rotation(x[i], temp1[i], omega_x[steps[j]])
-        y[i], py[i] = rotation(y[i], temp2[i], omega_y[steps[j]])
+        x[i], px[i] = rotation(x[i], temp1[i], omega_x[int(steps[j])])
+        y[i], py[i] = rotation(y[i], temp2[i], omega_y[int(steps[j])])
 
         steps[j] += 1
 
