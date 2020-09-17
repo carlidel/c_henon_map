@@ -80,6 +80,10 @@ class partial_track(object):
         """
         return self.r, self.alpha, self.theta1, self.theta2, self.step
 
+    def get_cartesian_data(self):
+        x, px, y, py = polar_to_cartesian(self.r, self.alpha, self.theta1, self.theta2)
+        return x, px, y, py, self.step
+
     def get_radiuses(self):
         return self.r
 
@@ -94,6 +98,15 @@ class partial_track(object):
 
     def get_filtered_action(self):
         return np.power(self.r[self.r != 0.0], 2) / 2
+
+    def get_survival_count(self):
+        return np.count_nonzero(self.r != 0.0)
+
+    def get_total_count(self):
+        return self.r.size
+
+    def get_survival_rate(self):
+        return np.count_nonzero(self.r != 0.0) / self.r.size
 
     @staticmethod
     def generate_instance(radius, alpha, theta1, theta2, epsilon, cuda_device=None):
@@ -142,7 +155,7 @@ class cpu_partial_track(partial_track):
         self.theta2_0 = theta2.copy()
         self.epsilon = epsilon
         self.total_iters = 0
-        self.limit = 100.0
+        self.limit = 1.0
 
         # make containers
         self.step = np.zeros((alpha.size), dtype=np.int)
@@ -206,7 +219,7 @@ class gpu_partial_track(partial_track):
         self.theta2_0 = theta2.copy()
         self.epsilon = epsilon
         self.total_iters = 0
-        self.limit = 100.0
+        self.limit = 1.0
 
         # make containers
         self.step = np.zeros((alpha.size), dtype=np.int)
