@@ -2,8 +2,11 @@ import matplotlib.pyplot as plt
 from numba import cuda, jit, njit, prange
 import numpy as np
 from tqdm import tqdm
+import scipy.integrate as integrate
 import pickle
 import time
+import tempfile
+import h5py
 
 from . import gpu_henon_core as gpu
 from . import cpu_henon_core as cpu
@@ -297,18 +300,25 @@ class uniform_scan(object):
     def scan(self):
         pass
 
-    def save_values(self, f, label="SixTrack LHC no bb flat"):
-        self.label = label
-        data_dict = {
-            "label": label,
-            "top": self.top,
-            "steps": self.steps,
-            "starting_radius": self.starting_radius,
-            "times": self.times,
-            "max_turns": self.max_turns
-        }
-        with open(f, 'wb') as destination:
-            pickle.dump(data_dict, destination, protocol=4)
+    def save_values(self, f, label="Henon map"):
+        self.db.flush()
+        dest = h5py.File(f, mode="w")
+        
+        dest.attrs["label"] = label
+        dest.attrs["epsilon"] = self.db.attrs["epsilon"]
+        dest.attrs["top"] = self.db.attrs["top"]
+        dest.attrs["steps"] = self.db.attrs["steps"]
+        dest.attrs["starting_radius"] = self.db.attrs["starting_radius"]
+        dest.attrs["coordinates"] = self.db.attrs["coordinates"]
+        dest.attrs["samples"] = self.db.attrs["samples"]
+        dest.attrs["max_turns"] = self.db.attrs["max_turns"]
+
+        g = dest.create_group("data")
+        self.db.copy("data/times", g)
+
+        dest.create_dataset(
+            "/data/weights", (self.samples, self.samples, self.samples, self.samples), dtype=np.float, compression="lzf")
+        dest.close()
 
     @staticmethod
     def generate_instance(epsilon, top, steps, starting_radius=0.0001, cuda_device=None):
@@ -342,39 +352,36 @@ class uniform_scan(object):
 
 class cpu_uniform_scan(uniform_scan):
     def __init__(self, epsilon, top, steps, starting_radius=0.0001):
-        self.epsilon = epsilon
-        self.top = top
-        self.steps = steps
-        self.starting_radius = starting_radius
+        self.tf = tempfile.TemporaryFile()
+        self.db = h5py.File(self.tf, mode="w")
 
-        self.coords = np.linspace(-top, top, steps * 2 + 1)
-        self.X, self.PX, self.Y, self.PY = np.meshgrid(
-            self.coords, self.coords, self.coords, self.coords)
+        self.samples = steps * 2 + 1
+        self.coords = np.linspace(-top, top, self.samples)
+        
+        self.db.attrs["epsilon"] = epsilon
+        self.db.attrs["top"] = top
+        self.db.attrs["steps"] = steps
+        self.db.attrs["starting_radius"] = starting_radius
+        self.db.attrs["samples"] = self.samples
+        self.db.attrs["coordinates"] = self.coords
 
-        self.X2 = np.power(self.X, 2)
-        self.PX2 = np.power(self.PX, 2)
-        self.Y2 = np.power(self.Y, 2)
-        self.PY2 = np.power(self.PY, 2)
+        self.bool_mask = self.db.create_dataset(
+            "/data/bool_mask", (self.samples, self.samples, self.samples, self.samples), dtype=np.bool, compression="lzf")
 
-        self.bool_mask = (
-            self.X2
-            + self.PX2
-            + self.Y2
-            + self.PY2
-            >= np.power(starting_radius, 2)
-        )
+        self.coords2 = np.power(self.coords, 2)
+        for i in tqdm(range(len(self.coords)), desc="Make the boolean mask"):
+            px, y, py = np.meshgrid(self.coords2, self.coords2, self.coords2)
+            self.bool_mask[i] = (
+                self.coords[i] ** 2 
+                + px
+                + y
+                + py
+                >= starting_radius ** 2
+            )
 
-        self.X_f = self.X.flatten()
-        self.PX_f = self.PX.flatten()
-        self.Y_f = self.Y.flatten()
-        self.PY_f = self.PY.flatten()
-        self.bool_mask_f = self.bool_mask.flatten()
-
-        self.times = np.zeros_like(self.X)
-        self.times_f = self.times.flatten()
-
-        self.n_samples = np.count_nonzero(self.bool_mask_f)
-    
+        self.times = self.db.create_dataset(
+            "/data/times", (self.samples, self.samples, self.samples, self.samples), dtype=np.int32, compression="lzf")
+        
     def scan(self, max_turns):
         """Execute a scanning of everything
 
@@ -388,59 +395,49 @@ class cpu_uniform_scan(uniform_scan):
         ndarray
             4d array with stable iterations inside
         """
-        self.max_turns = max_turns
+        self.db.attrs["max_turns"] = max_turns
 
-        omega_x, omega_y = modulation(self.epsilon, self.n_samples)
+        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
 
-        # Filling
-        start = time.time()
-
-        self.times_f = cpu.henon_map_to_the_end(
-            self.X_f, self.PX_f, self.Y_f, self.PY_f, 100.0, max_turns, omega_x, omega_y, self.bool_mask_f)
-
-        print("Elapsed time for execution: {} s".format(time.time() - start))
-
-        self.times = self.times_f.reshape(
-            (self.steps * 2 + 1, self.steps * 2 + 1, self.steps * 2 + 1, self.steps * 2 + 1))
-
-        return self.times
+        for i in tqdm(range(len(self.times))):
+            px, y, py  = np.meshgrid(self.coords, self.coords, self.coords)
+            x = np.ones_like(px) * self.coords[i]
+            self.times[i] = cpu.henon_map_to_the_end(
+                x, px, y, py, 10.0, max_turns, omega_x, omega_y, self.bool_mask[i]
+            )
 
 
 class gpu_uniform_scan(uniform_scan):
     def __init__(self, epsilon, top, steps, starting_radius=0.0001):
-        self.epsilon = epsilon
-        self.top = top
-        self.steps = steps
-        self.starting_radius = starting_radius
+        self.tf = tempfile.TemporaryFile()
+        self.db = h5py.File(self.tf, mode="w")
 
-        self.coords = np.linspace(-top, top, steps * 2 + 1)
-        self.X, self.PX, self.Y, self.PY = np.meshgrid(
-            self.coords, self.coords, self.coords, self.coords,
-            indexing='ij')
+        self.samples = steps * 2 + 1
+        self.coords = np.linspace(-top, top, self.samples)
 
-        self.X2 = np.power(self.X, 2)
-        self.PX2 = np.power(self.PX, 2)
-        self.Y2 = np.power(self.Y, 2)
-        self.PY2 = np.power(self.PY, 2)
+        self.db.attrs["epsilon"] = epsilon
+        self.db.attrs["top"] = top
+        self.db.attrs["steps"] = steps
+        self.db.attrs["starting_radius"] = starting_radius
+        self.db.attrs["samples"] = self.samples
+        self.db.attrs["coordinates"] = self.coords
 
-        self.bool_mask = (
-            self.X2
-            + self.PX2
-            + self.Y2
-            + self.PY2
-            >= np.power(starting_radius, 2)
-        )
+        self.bool_mask = self.db.create_dataset(
+            "/data/bool_mask", (self.samples, self.samples, self.samples, self.samples), dtype=np.bool, compression="lzf")
 
-        self.X_f = self.X.flatten()
-        self.PX_f = self.PX.flatten()
-        self.Y_f = self.Y.flatten()
-        self.PY_f = self.PY.flatten()
-        self.bool_mask_f = self.bool_mask.flatten()
+        self.coords2 = np.power(self.coords, 2)
+        for i in tqdm(range(len(self.coords)), desc="Make the boolean mask"):
+            px, y, py = np.meshgrid(self.coords2, self.coords2, self.coords2)
+            self.bool_mask[i] = (
+                self.coords[i] ** 2
+                + px
+                + y
+                + py
+                >= starting_radius ** 2
+            )
 
-        self.times = np.zeros_like(self.X)
-        self.times_f = self.times.flatten()
-
-        self.n_samples = np.count_nonzero(self.bool_mask_f)
+        self.times = self.db.create_dataset(
+            "/data/times", (self.samples, self.samples, self.samples, self.samples), dtype=np.int32, compression="lzf")
 
     def scan(self, max_turns):
         """Execute a scanning of everything
@@ -458,34 +455,31 @@ class gpu_uniform_scan(uniform_scan):
         threads_per_block = 512
         blocks_per_grid = 10
 
-        d_x = cuda.to_device(self.X_f)
-        d_px = cuda.to_device(self.PX_f)
-        d_y = cuda.to_device(self.Y_f)
-        d_py = cuda.to_device(self.PY_f)
-        d_times = cuda.to_device(self.times_f)
-        d_bool_mask = cuda.to_device(self.bool_mask_f)
+        self.db.attrs["max_turns"] = max_turns
 
-        self.max_turns = max_turns
-
-        omega_x, omega_y = modulation(self.epsilon, self.n_samples)
-
+        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
         d_omega_x = cuda.to_device(omega_x)
         d_omega_y = cuda.to_device(omega_y)
 
-        # Filling
-        start = time.time()
+        t_f = np.empty(shape=(self.samples, self.samples, self.samples)).flatten()
 
-        gpu.henon_map_to_the_end[blocks_per_grid, threads_per_block](
-            d_x, d_px, d_y, d_py, d_times, 100.0, max_turns, d_omega_x, d_omega_y, d_bool_mask
-        )
+        for i in tqdm(range(len(self.times))):
+            px, y, py = np.meshgrid(self.coords, self.coords, self.coords)
+            x = np.ones_like(px) * self.coords[i]
 
-        print("Elapsed time for execution: {} s".format(time.time() - start))
+            d_x = cuda.to_device(x.flatten())
+            d_px = cuda.to_device(px.flatten())
+            d_y = cuda.to_device(y.flatten())
+            d_py = cuda.to_device(py.flatten())
+            d_times = cuda.device_array(x.size, dtype=np.int32)
+            d_bool_mask = cuda.to_device(np.asarray(self.bool_mask[i]).flatten())
 
-        d_times.copy_to_host(self.times_f)
-        self.times = self.times_f.reshape(
-            (self.steps * 2 + 1, self.steps * 2 + 1, self.steps * 2 + 1, self.steps * 2 + 1))
+            gpu.henon_map_to_the_end[blocks_per_grid, threads_per_block](
+                d_x, d_px, d_y, d_py, d_times, 10.0, max_turns, d_omega_x, d_omega_y, d_bool_mask
+            )
 
-        return self.times
+            d_times.copy_to_host(t_f)
+            self.times[i] = t_f.reshape(x.shape)
 
 
 class radial_scan(object):
@@ -811,6 +805,172 @@ class cpu_radial_scan(radial_scan):
         return self.steps
         
 
+class radial_block(object):
+    def __init__(self):
+        pass
+
+    def scan(self):
+        pass
+
+    def save_values(self, f, label="Henon map"):
+        self.db.flush()
+        dest = h5py.File(f, mode="w")
+
+        dest.attrs["label"] = label
+        dest.attrs["epsilon"] = self.db.attrs["epsilon"]
+        dest.attrs["radial_samples"] = self.db.attrs["radial_samples"]
+        dest.attrs["max_radius"] = self.db.attrs["max_radius"]
+        dest.attrs["alpha"] = self.db.attrs["alpha"]
+        dest.attrs["theta1"] = self.db.attrs["theta1"]
+        dest.attrs["theta2"] = self.db.attrs["theta2"]
+        dest.attrs["r_list"] = self.db.attrs["r_list"]
+        dest.attrs["dr"] = self.db.attrs["dr"]
+        dest.attrs["max_turns"] = self.db.attrs["max_turns"]
+        
+        g = dest.create_group("data")
+        self.db.copy("data/times", g)
+
+        dest.create_dataset(
+            "/data/weights", (self.db.attrs["radial_samples"], len(self.db.attrs["alpha"]), len(self.db.attrs["theta1"]), len(self.db.attrs["theta2"])), dtype=np.float, compression="lzf")
+        dest.close()
+    
+    @staticmethod
+    def generate_instance(radial_samples, alpha, theta1, theta2, epsilon, max_radius=1.0, starting_radius=0.0, cuda_device=None):
+        if cuda_device == None:
+            cuda_device = cuda.is_available()
+        if cuda_device:
+            return gpu_radial_block(radial_samples, alpha, theta1, theta2, epsilon, max_radius, starting_radius)
+        else:
+            return cpu_radial_block(radial_samples, alpha, theta1, theta2, epsilon, max_radius, starting_radius)
+
+        
+class cpu_radial_block(radial_block):
+    def __init__(self, radial_samples, alpha, theta1, theta2, epsilon, max_radius=1.0, starting_radius=0.0):
+        assert alpha.size == theta1.size
+        assert alpha.size == theta2.size
+        assert max_radius > 0.0
+        
+        self.tf = tempfile.TemporaryFile()
+        self.db = h5py.File(self.tf, mode="w")
+
+        self.db.attrs["epsilon"] = epsilon
+        self.db.attrs["radial_samples"] = radial_samples
+        self.db.attrs["starting_radius"] = starting_radius
+        self.starting_radius = starting_radius
+        self.db.attrs["max_radius"] = max_radius
+        self.alpha = alpha
+        self.theta1 = theta1
+        self.theta2 = theta2
+        self.db.attrs["alpha"] = alpha
+        self.db.attrs["theta1"] = theta1
+        self.db.attrs["theta2"] = theta2
+
+        self.r_list, self.dr = np.linspace(0, max_radius, radial_samples + 1, retstep=True)
+        self.r_list = self.r_list[1:]
+        self.db.attrs["r_list"] = self.r_list
+        self.db.attrs["dr"] = self.dr
+
+        self.bool_mask = self.db.create_dataset(
+            "/data/bool_mask", (radial_samples, len(alpha), len(theta1), len(theta2)), dtype=np.bool, compression="lzf")
+        
+        for i in tqdm(range(radial_samples)):
+            self.bool_mask[i] = self.r_list[i] >= starting_radius
+
+        self.times = self.db.create_dataset(
+            "/data/times", (radial_samples, len(alpha), len(theta1), len(theta2)), dtype=np.int32, compression="lzf")
+    
+    def scan(self, max_turns):
+        self.db.attrs["max_turns"] = max_turns
+
+        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
+
+        aa, th1, th2 = np.meshgrid(
+            self.alpha, self.theta1, self.theta2, indexing='ij'
+        )
+
+        for i in tqdm(range(len(self.times))):
+            if self.r_list[i] < self.starting_radius:
+                self.times[i] = max_turns
+            else:
+                x, px, y, py = polar_to_cartesian(self.r_list[i], aa, th1, th2)
+
+                self.times[i] = cpu.henon_map_to_the_end(
+                    x, px, y, py, 10.0, max_turns, omega_x, omega_y, self.bool_mask[i]
+                )
+        
+
+class gpu_radial_block(radial_block):
+    def __init__(self, radial_samples, alpha, theta1, theta2, epsilon, max_radius=1.0, starting_radius=0.0):
+        assert alpha.size == theta1.size
+        assert alpha.size == theta2.size
+        assert max_radius > 0.0
+
+        self.tf = tempfile.TemporaryFile()
+        self.db = h5py.File(self.tf, mode="w")
+
+        self.db.attrs["epsilon"] = epsilon
+        self.db.attrs["radial_samples"] = radial_samples
+        self.db.attrs["starting_radius"] = starting_radius
+        self.starting_radius = starting_radius
+        self.db.attrs["max_radius"] = max_radius
+        self.alpha = alpha
+        self.theta1 = theta1
+        self.theta2 = theta2
+        self.db.attrs["alpha"] = alpha
+        self.db.attrs["theta1"] = theta1
+        self.db.attrs["theta2"] = theta2
+
+        self.r_list, self.dr = np.linspace(
+            0, max_radius, radial_samples + 1, retstep=True)
+        self.r_list = self.r_list[1:]
+        self.db.attrs["r_list"] = self.r_list
+        self.db.attrs["dr"] = self.dr
+
+        self.bool_mask = self.db.create_dataset(
+            "/data/bool_mask", (radial_samples, len(alpha), len(theta1), len(theta2)), dtype=np.bool, compression="lzf")
+
+        for i in tqdm(range(radial_samples)):
+            self.bool_mask[i] = self.r_list[i] >= starting_radius
+
+        self.times = self.db.create_dataset(
+            "/data/times", (radial_samples, len(alpha), len(theta1), len(theta2)), dtype=np.int32, compression="lzf")
+
+    def scan(self, max_turns):
+        threads_per_block = 512
+        blocks_per_grid = 10
+        
+        self.db.attrs["max_turns"] = max_turns
+
+        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
+        d_omega_x = cuda.to_device(omega_x)
+        d_omega_y = cuda.to_device(omega_y)
+
+        t_f = np.empty(shape=(len(self.alpha), len(
+            self.theta1), len(self.theta2))).flatten()
+        aa, th1, th2 = np.meshgrid(
+            self.alpha, self.theta1, self.theta2, indexing='ij'
+        )
+
+        for i in tqdm(range(len(self.times))):
+            if self.r_list[i] < self.starting_radius:
+                self.times[i] = max_turns
+            else:
+                x, px, y, py = polar_to_cartesian(self.r_list[i], aa, th1, th2)
+            d_x = cuda.to_device(x.flatten())
+            d_px = cuda.to_device(px.flatten())
+            d_y = cuda.to_device(y.flatten())
+            d_py = cuda.to_device(py.flatten())
+            d_times = cuda.device_array(x.size, dtype=np.int32)
+            d_bool_mask = cuda.to_device(np.asarray(self.bool_mask[i]).flatten())
+
+            gpu.henon_map_to_the_end[blocks_per_grid, threads_per_block](
+                d_x, d_px, d_y, d_py, d_times, 10.0, max_turns, d_omega_x, d_omega_y, d_bool_mask
+            )
+
+            d_times.copy_to_host(t_f)
+            self.times[i] = t_f.reshape(x.shape)
+
+
 class full_track(object):
     def __init__(self):
         pass
@@ -993,3 +1153,295 @@ class cpu_full_track(full_track):
             self.iters, omega_x, omega_y
         )
         return self.x, self.px, self.y, self.py
+
+
+class uniform_analyzer(object):
+    def __init__(self, hdf5_dir):
+        self.db = h5py.File(hdf5_dir, mode="r+")
+        self.samples = self.db.attrs["samples"]
+        self.coords = self.db.attrs["coordinates"]
+        self.coords2 = np.power(self.coords, 2)
+        self.times = self.db["/data/times"]
+        self.weights = self.db["/data/weights"]
+
+    def assign_weights(self, f=lambda x, px, y, py: 1.0, radial_cut=-1.0):
+        if radial_cut == -1.0:
+            radial_cut = self.db.attrs["top"]
+
+        for i in tqdm(range(self.samples), desc="assigning weights"):
+            px, y, py = np.meshgrid(self.coords, self.coords, self.coords)
+            self.weights[i] = f(self.coords[i], px, y, py) * (
+                np.power(self.coords[i], 2) + np.power(px, 2) + np.power(y, 2) + np.power(py, 2) <= np.power(radial_cut, 2)
+            )
+
+    def compute_loss(self, sample_list, normalization=True):
+        prelim_values = np.empty(self.samples)        
+        for i in tqdm(range(self.samples), desc="baseline integration"):
+            prelim_values[i] = integrate.trapz(
+                integrate.trapz(
+                    integrate.trapz(
+                        self.weights[i],
+                        x=self.coords
+                    ),
+                    x=self.coords
+                ),
+                x=self.coords
+            )
+        baseline = integrate.trapz(prelim_values, x=self.coords)
+
+        values = np.empty(len(sample_list))
+        for j, sample in tqdm(enumerate(sample_list), desc="other integrals...", total=len(sample_list)):
+            prelim_values = np.empty(self.samples)
+            for i in range(self.samples):
+                prelim_values[i] = integrate.trapz(
+                    integrate.trapz(
+                        integrate.trapz(
+                            self.weights[i] * (self.times[i] >= sample),
+                            x=self.coords
+                        ),
+                        x=self.coords
+                    ),
+                    x=self.coords
+                )
+            values[j] = integrate.trapz(prelim_values, x=self.coords)
+
+        if normalization:
+            values /= baseline
+
+        return values
+
+    def compute_loss_cut(self, cut):
+        prelim_values = np.empty(self.samples)
+        for i in tqdm(range(self.samples), desc="baseline integration"):
+            px, y, py = np.meshgrid(self.coords2, self.coords2, self.coords2)
+            prelim_values[i] = integrate.trapz(
+                integrate.trapz(
+                    integrate.trapz(
+                        self.weights[i] * (np.power(self.coords[i], 2) + px + y + py <= np.power(cut, 2)),
+                        x=self.coords
+                    ),
+                    x=self.coords
+                ),
+                x=self.coords
+            )
+        return integrate.trapz(prelim_values, self.coords)
+
+
+class uniform_radial_scanner(object):
+    """This class is for analyzing the loss values of a (somewhat) angular uniform scan"""
+
+    def __init__(self, hdf5_dir):
+        self.db = h5py.File(hdf5_dir, mode="r+")
+        self.r_list = self.db.attrs["r_list"]
+        self.alpha = self.db.attrs["alpha"]
+        self.theta1 = self.db.attrs["theta1"]
+        self.theta2 = self.db.attrs["theta2"]
+        self.dr = self.db.attrs["dr"]
+
+        self.times = self.db["/data/times"]
+        self.weights = self.db["/data/weights"]
+
+    @staticmethod
+    def static_extract_radiuses(n_alpha, n_theta1, n_theta2, sample, times, dr):
+        values = np.empty(
+            (n_alpha, n_theta1, n_theta2))
+        for i1 in range(n_alpha):
+            for i2 in range(n_theta1):
+                for i3 in range(n_theta2):
+                    values[i1, i2, i3] = np.argmin(
+                        times[:, i1, i2, i3] >= sample) - 1
+                    if values[i1, i2, i3] < 0:
+                        values[i1, i2, i3] = np.nan
+                    else:
+                        values[i1, i2, i3] = (
+                            values[i1, i2, i3] + 1) * dr
+        return values
+
+    def compute_DA_standard(self, sample_list):
+        self.sample_list = sample_list
+        self.DA = np.empty(len(sample_list), dtype=np.float)
+        self.error = np.empty(len(sample_list), dtype=np.float)
+        for i, sample in tqdm(enumerate(sample_list), total=len(sample_list), desc="Computing DA..."):
+        
+            radiuses = self.static_extract_radiuses(
+                len(self.alpha), len(self.theta1), len(self.theta2),
+                sample, self.times, self.dr)
+
+            mod_radiuses = np.power(radiuses, 4)
+            mod_radiuses = integrate.trapz(mod_radiuses, x=self.theta2)
+            mod_radiuses = integrate.trapz(mod_radiuses, x=self.theta1)
+            mod_radiuses = integrate.trapz(mod_radiuses, x=self.alpha)
+
+            self.DA[i] = np.power(
+                mod_radiuses / (2 * self.theta1[-1] * self.theta2[-1]), 1/4)
+            e_alpha = np.mean(np.absolute(
+                radiuses[1:] - radiuses[:-1]), axis=(0, 1, 2)) ** 2
+            e_theta1 = np.mean(np.absolute(radiuses[:, 1:] -
+                                        radiuses[:, :-1]), axis=(0, 1, 2)) ** 2
+            e_theta2 = np.mean(np.absolute(radiuses[:, :, 1:] -
+                                        radiuses[:, :, :-1]), axis=(0, 1, 2)) ** 2
+            e_radius = self.dr ** 2
+            self.error[i] = np.sqrt(
+                (e_radius + e_alpha + e_theta1 + e_theta2) / 4)
+        return self.DA, self.error
+
+    def assign_weights(self, f=lambda r, a, th1, th2: np.ones_like(a)):
+        """Assign weights to the various radial samples computed (not-so-intuitive to setup, beware...).
+
+        Parameters
+        ----------
+        f : lambda, optional
+            the lambda to assign the weights with, by default returns r
+            this lambda has to take as arguments
+            r : float
+                the radius
+            a : float
+                the alpha angle
+            th1 : float
+                the theta1 angle
+            th2 : float
+                the theta2 angle
+        """
+        aa, th1, th2 = np.meshgrid(
+            self.alpha, self.theta1, self.theta2, indexing='ij'
+        )
+        for i, r in tqdm(enumerate(self.r_list), desc="assigning weights", total=len(self.r_list)):
+            self.weights[i] = f(r, aa, th1, th2) 
+
+    def compute_loss(self, sample_list, cutting_point=-1.0, normalization=True):
+        """Compute the loss based on a boolean masking of the various timing values.
+
+        Parameters
+        ----------
+        sample_list : ndarray
+            list of times to use as samples
+        cutting_point : float, optional
+            radius to set-up as cutting point for normalization purposes, by default -1.0
+        normalization : boolean, optional
+            execute normalization? By default True
+
+        Returns
+        -------
+        ndarray
+            the values list measured (last element is the cutting point value 1.0 used for renormalization of the other results.)
+        """
+        if cutting_point == -1.0:
+            cutting_point = self.db.attrs["max_radius"]
+
+        prelim_values = np.empty(self.r_list.size)
+
+        for i, r in tqdm(enumerate(self.r_list), desc="integration...", total=len(self.r_list)):
+            if r > cutting_point:
+                prelim_values[i] = 0.0
+            else:
+                prelim_values[i] = integrate.trapz(
+                    integrate.trapz(
+                        integrate.trapz(
+                            self.weights[i],
+                            self.theta2
+                        ),
+                        self.theta1
+                    ),
+                    self.alpha
+                )
+        baseline = integrate.trapz(prelim_values, self.r_list)
+
+        values = np.empty(len(sample_list))
+        for j, sample in tqdm(enumerate(sample_list), desc="other integrals...", total=len(self.sample_list)):
+            prelim_values = np.empty(self.r_list.size)
+            for i, r in tqdm(enumerate(self.r_list), desc="integration...", total=len(self.r_list)):
+                if r > cutting_point:
+                    prelim_values[i] = 0.0
+                else:
+                    prelim_values[i] = integrate.trapz(
+                        integrate.trapz(
+                            integrate.trapz(
+                                self.weights[i] * (self.times[i] >= sample),
+                                self.theta2
+                            ),
+                            self.theta1
+                        ),
+                        self.alpha
+                    )
+            values[j] = integrate.trapz(prelim_values, self.r_list)
+
+        if normalization:
+            values /= baseline
+        return np.abs(values)
+
+    def compute_loss_cut(self, cutting_point=-1.0):
+        """Compute the loss based on a simple DA cut.
+
+        Parameters
+        ----------
+        cutting_point : float
+            radius to set-up as cutting point
+
+        Returns
+        -------
+        float
+            the (not-normalized) value
+        """
+        prelim_values = np.empty(self.r_list.size)
+
+        for i, r in tqdm(enumerate(self.r_list), desc="integration...", total=len(self.r_list)):
+            if r > cutting_point:
+                prelim_values[i] = 0.0
+            else:
+                prelim_values[i] = integrate.trapz(
+                    integrate.trapz(
+                        integrate.trapz(
+                            self.weights[i],
+                            self.theta2
+                        ),
+                        self.theta1
+                    ),
+                    self.alpha
+                )
+        return integrate.trapz(prelim_values, self.r_list)
+
+
+def assign_symmetric_gaussian(sigma=1.0, polar=True):
+    if polar:
+        def f(r, a, th1, th2):
+            return (
+                np.exp(- 0.5 * np.power(r / sigma, 2))
+            )
+    else:
+        def f(x, px, y, py):
+            return(
+                np.exp(-0.5 * (np.power(x / sigma, 2.0) + np.power(y / sigma,
+                                                                   2.0) + np.power(py / sigma, 2.0) + np.power(px / sigma, 2.0)))
+            )
+    return f
+
+
+def assign_uniform_distribution(polar=True):
+    if polar:
+        def f(r, a, th1, th2):
+            return (
+                np.ones_like(r)
+            )
+    else:
+        def f(x, px, y, py):
+            return (
+                np.ones_like(x)
+            )
+    return f
+
+
+def assign_generic_gaussian(sigma_x, sigma_px, sigma_y, sigma_py, polar=True):
+    if polar:
+        def f(r, a, th1, th2):
+            x, px, y, py = polar_to_cartesian(r, a, th1, th2)
+            x /= sigma_x
+            px /= sigma_px
+            y /= sigma_y
+            py /= sigma_py
+            r, a, th1, th2 = cartesian_to_polar(x, px, y, py)
+            return (
+                np.exp(- np.power(r, 2) * 0.5) / (np.power(2 * np.pi, 2))
+            )
+    else:
+        assert False  # Needs to be implemented lol
+    return f
