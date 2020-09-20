@@ -461,9 +461,9 @@ class gpu_uniform_scan(uniform_scan):
         d_omega_x = cuda.to_device(omega_x)
         d_omega_y = cuda.to_device(omega_y)
 
-        t_f = np.empty(shape=(self.samples, self.samples, self.samples)).flatten()
+        t_f = np.empty(shape=(self.samples, self.samples, self.samples), dtype=np.int32).flatten()
 
-        for i in tqdm(range(len(self.times))):
+        for i in tqdm(range(len(self.times)), smoothing=1.0):
             px, y, py = np.meshgrid(self.coords, self.coords, self.coords)
             x = np.ones_like(px) * self.coords[i]
 
@@ -471,7 +471,7 @@ class gpu_uniform_scan(uniform_scan):
             d_px = cuda.to_device(px.flatten())
             d_y = cuda.to_device(y.flatten())
             d_py = cuda.to_device(py.flatten())
-            d_times = cuda.device_array(x.size, dtype=np.int32)
+            d_times = cuda.to_device(np.zeros(x.size, dtype=np.int32))
             d_bool_mask = cuda.to_device(np.asarray(self.bool_mask[i]).flatten())
 
             gpu.henon_map_to_the_end[blocks_per_grid, threads_per_block](
@@ -823,7 +823,6 @@ class radial_block(object):
         dest.attrs["alpha"] = self.db.attrs["alpha"]
         dest.attrs["theta1"] = self.db.attrs["theta1"]
         dest.attrs["theta2"] = self.db.attrs["theta2"]
-        dest.attrs["r_list"] = self.db.attrs["r_list"]
         dest.attrs["dr"] = self.db.attrs["dr"]
         dest.attrs["max_turns"] = self.db.attrs["max_turns"]
         
@@ -867,7 +866,6 @@ class cpu_radial_block(radial_block):
 
         self.r_list, self.dr = np.linspace(0, max_radius, radial_samples + 1, retstep=True)
         self.r_list = self.r_list[1:]
-        self.db.attrs["r_list"] = self.r_list
         self.db.attrs["dr"] = self.dr
 
         self.bool_mask = self.db.create_dataset(
@@ -888,7 +886,7 @@ class cpu_radial_block(radial_block):
             self.alpha, self.theta1, self.theta2, indexing='ij'
         )
 
-        for i in tqdm(range(len(self.times))):
+        for i in tqdm(range(len(self.times)), smoothing=1.0):
             if self.r_list[i] < self.starting_radius:
                 self.times[i] = max_turns
             else:
@@ -923,7 +921,6 @@ class gpu_radial_block(radial_block):
         self.r_list, self.dr = np.linspace(
             0, max_radius, radial_samples + 1, retstep=True)
         self.r_list = self.r_list[1:]
-        self.db.attrs["r_list"] = self.r_list
         self.db.attrs["dr"] = self.dr
 
         self.bool_mask = self.db.create_dataset(
@@ -946,29 +943,29 @@ class gpu_radial_block(radial_block):
         d_omega_y = cuda.to_device(omega_y)
 
         t_f = np.empty(shape=(len(self.alpha), len(
-            self.theta1), len(self.theta2))).flatten()
+            self.theta1), len(self.theta2)), dtype=np.int32).flatten()
         aa, th1, th2 = np.meshgrid(
             self.alpha, self.theta1, self.theta2, indexing='ij'
         )
 
-        for i in tqdm(range(len(self.times))):
+        for i in tqdm(range(len(self.times)), smoothing=1.0):
             if self.r_list[i] < self.starting_radius:
                 self.times[i] = max_turns
             else:
                 x, px, y, py = polar_to_cartesian(self.r_list[i], aa, th1, th2)
-            d_x = cuda.to_device(x.flatten())
-            d_px = cuda.to_device(px.flatten())
-            d_y = cuda.to_device(y.flatten())
-            d_py = cuda.to_device(py.flatten())
-            d_times = cuda.device_array(x.size, dtype=np.int32)
-            d_bool_mask = cuda.to_device(np.asarray(self.bool_mask[i]).flatten())
+                d_x = cuda.to_device(x.flatten())
+                d_px = cuda.to_device(px.flatten())
+                d_y = cuda.to_device(y.flatten())
+                d_py = cuda.to_device(py.flatten())
+                d_bool_mask = cuda.to_device(np.asarray(self.bool_mask[i]).flatten())
+                d_times = cuda.to_device(np.zeros(x.size, dtype=np.int32))
 
-            gpu.henon_map_to_the_end[blocks_per_grid, threads_per_block](
-                d_x, d_px, d_y, d_py, d_times, 10.0, max_turns, d_omega_x, d_omega_y, d_bool_mask
-            )
+                gpu.henon_map_to_the_end[blocks_per_grid, threads_per_block](
+                    d_x, d_px, d_y, d_py, d_times, 10.0, max_turns, d_omega_x, d_omega_y, d_bool_mask
+                )
 
-            d_times.copy_to_host(t_f)
-            self.times[i] = t_f.reshape(x.shape)
+                d_times.copy_to_host(t_f)
+                self.times[i] = t_f.reshape(x.shape)
 
 
 class full_track(object):
@@ -1232,7 +1229,11 @@ class uniform_radial_scanner(object):
 
     def __init__(self, hdf5_dir):
         self.db = h5py.File(hdf5_dir, mode="r+")
-        self.r_list = self.db.attrs["r_list"]
+        self.max_radius = self.db.attrs["max_radius"]
+        self.samples = self.db.attrs["radial_samples"]
+        self.r_list, self.dr = np.linspace(
+            0, self.max_radius, self.samples, retstep=True)
+        self.r_list = self.r_list[1:]
         self.alpha = self.db.attrs["alpha"]
         self.theta1 = self.db.attrs["theta1"]
         self.theta2 = self.db.attrs["theta2"]
