@@ -321,7 +321,7 @@ class uniform_scan(object):
         dest.close()
 
     @staticmethod
-    def generate_instance(epsilon, top, steps, starting_radius=0.0001, cuda_device=None):
+    def generate_instance(epsilon, top, steps, starting_radius=0.0001, cuda_device=None, tempdir=None):
         """Create an uniform scan object
 
         Parameters
@@ -345,14 +345,14 @@ class uniform_scan(object):
         if cuda_device == None:
             cuda_device = cuda.is_available()
         if cuda_device:
-            return gpu_uniform_scan(epsilon, top, steps, starting_radius)
+            return gpu_uniform_scan(epsilon, top, steps, starting_radius, tempdir)
         else:
-            return cpu_uniform_scan(epsilon, top, steps, starting_radius)
+            return cpu_uniform_scan(epsilon, top, steps, starting_radius, tempdir)
 
 
 class cpu_uniform_scan(uniform_scan):
-    def __init__(self, epsilon, top, steps, starting_radius=0.0001):
-        self.tf = tempfile.TemporaryFile()
+    def __init__(self, epsilon, top, steps, starting_radius=0.0001, tempdir=None):
+        self.tf = tempfile.TemporaryFile(dir=tempdir)
         self.db = h5py.File(self.tf, mode="w")
 
         self.samples = steps * 2 + 1
@@ -408,8 +408,8 @@ class cpu_uniform_scan(uniform_scan):
 
 
 class gpu_uniform_scan(uniform_scan):
-    def __init__(self, epsilon, top, steps, starting_radius=0.0001):
-        self.tf = tempfile.TemporaryFile()
+    def __init__(self, epsilon, top, steps, starting_radius=0.0001, tempdir=None):
+        self.tf = tempfile.TemporaryFile(dir=tempdir)
         self.db = h5py.File(self.tf, mode="w")
 
         self.samples = steps * 2 + 1
@@ -834,22 +834,22 @@ class radial_block(object):
         dest.close()
     
     @staticmethod
-    def generate_instance(radial_samples, alpha, theta1, theta2, epsilon, max_radius=1.0, starting_radius=0.0, cuda_device=None):
+    def generate_instance(radial_samples, alpha, theta1, theta2, epsilon, max_radius=1.0, starting_radius=0.0, cuda_device=None, tempdir=None):
         if cuda_device == None:
             cuda_device = cuda.is_available()
         if cuda_device:
-            return gpu_radial_block(radial_samples, alpha, theta1, theta2, epsilon, max_radius, starting_radius)
+            return gpu_radial_block(radial_samples, alpha, theta1, theta2, epsilon, max_radius, starting_radius, tempdir)
         else:
-            return cpu_radial_block(radial_samples, alpha, theta1, theta2, epsilon, max_radius, starting_radius)
+            return cpu_radial_block(radial_samples, alpha, theta1, theta2, epsilon, max_radius, starting_radius, tempdir)
 
         
 class cpu_radial_block(radial_block):
-    def __init__(self, radial_samples, alpha, theta1, theta2, epsilon, max_radius=1.0, starting_radius=0.0):
+    def __init__(self, radial_samples, alpha, theta1, theta2, epsilon, max_radius=1.0, starting_radius=0.0, tempdir=None):
         assert alpha.size == theta1.size
         assert alpha.size == theta2.size
         assert max_radius > 0.0
         
-        self.tf = tempfile.TemporaryFile()
+        self.tf = tempfile.TemporaryFile(dir=tempdir)
         self.db = h5py.File(self.tf, mode="w")
 
         self.db.attrs["epsilon"] = epsilon
@@ -898,12 +898,12 @@ class cpu_radial_block(radial_block):
         
 
 class gpu_radial_block(radial_block):
-    def __init__(self, radial_samples, alpha, theta1, theta2, epsilon, max_radius=1.0, starting_radius=0.0):
+    def __init__(self, radial_samples, alpha, theta1, theta2, epsilon, max_radius=1.0, starting_radius=0.0, tempdir=None):
         assert alpha.size == theta1.size
         assert alpha.size == theta2.size
         assert max_radius > 0.0
 
-        self.tf = tempfile.TemporaryFile()
+        self.tf = tempfile.TemporaryFile(dir=tempdir)
         self.db = h5py.File(self.tf, mode="w")
 
         self.db.attrs["epsilon"] = epsilon
