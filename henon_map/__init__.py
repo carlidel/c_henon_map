@@ -1245,7 +1245,7 @@ class uniform_radial_scanner(object):
     @staticmethod
     def static_extract_radiuses(n_alpha, n_theta1, n_theta2, samples, times, dr, radius_db):
         for index, i1 in enumerate(range(n_alpha)):
-            print(index, "/", len(n_alpha))
+            print(index, "/", n_alpha)
             #for i2 in range(n_theta1):
                 #for i3 in range(n_theta2):
             temp = times[:, i1, :, :]
