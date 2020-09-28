@@ -1379,10 +1379,10 @@ class uniform_radial_scanner(object):
                         self.theta2
                     ),
                     self.theta1
-                ),
+                ) * np.sin(self.alpha) * np.cos(self.alpha),
                 self.alpha
             )
-        baseline = integrate.trapz(prelim_values, self.r_list)
+        baseline = integrate.trapz(prelim_values * np.power(self.r_list, 3), self.r_list)
 
         values = np.empty(len(sample_list))
         for j, sample in enumerate(sample_list):
@@ -1400,10 +1400,10 @@ class uniform_radial_scanner(object):
                             self.theta2
                         ),
                         self.theta1
-                    ),
+                    ) * np.sin(self.alpha) * np.cos(self.alpha),
                     self.alpha
                 )
-            values[j] = integrate.trapz(prelim_values, self.r_list)
+            values[j] = integrate.trapz(prelim_values * np.power(self.r_list, 3), self.r_list)
 
         if normalization:
             values /= baseline
@@ -1435,10 +1435,10 @@ class uniform_radial_scanner(object):
                             self.theta2
                         ),
                         self.theta1
-                    ),
+                    ) * np.sin(self.alpha) * np.cos(self.alpha),
                     self.alpha
                 )
-        return integrate.trapz(prelim_values, self.r_list)
+        return integrate.trapz(prelim_values * np.power(self.r_list, 3), self.r_list)
 
 
 def assign_symmetric_gaussian(sigma=1.0, polar=True):
