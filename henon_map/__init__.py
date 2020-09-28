@@ -1243,48 +1243,83 @@ class uniform_radial_scanner(object):
         self.weights = self.db["/data/weights"]
 
     @staticmethod
-    def static_extract_radiuses(n_alpha, n_theta1, n_theta2, sample, times, dr):
-        values = np.empty(
-            (n_alpha, n_theta1, n_theta2))
-        for i1 in range(n_alpha):
-            for i2 in range(n_theta1):
-                for i3 in range(n_theta2):
-                    values[i1, i2, i3] = np.argmin(
-                        times[:, i1, i2, i3] >= sample) - 1
-                    if values[i1, i2, i3] < 0:
-                        values[i1, i2, i3] = np.nan
-                    else:
-                        values[i1, i2, i3] = (
-                            values[i1, i2, i3] + 1) * dr
-        return values
+    def static_extract_radiuses(n_alpha, n_theta1, n_theta2, samples, times, dr, radius_db):
+        for i1 in tqdm(range(n_alpha)):
+            #for i2 in range(n_theta1):
+                #for i3 in range(n_theta2):
+            temp = times[:, i1, :, :]
+            values = np.empty((len(samples), n_theta1, n_theta2))
+            for i, sample in enumerate(samples):
+                values[i] = np.argmin(temp >= sample, axis=0) - 1
+            values[values < 0] = len(values)
+            values = (values + 1) * dr
+            radius_db[:, i1, :, :] = values
 
     def compute_DA_standard(self, sample_list):
         self.sample_list = sample_list
-        self.DA = np.empty(len(sample_list), dtype=np.float)
-        self.error = np.empty(len(sample_list), dtype=np.float)
-        for i, sample in tqdm(enumerate(sample_list), total=len(sample_list), desc="Computing DA..."):
+        """
+        try:
+            self.db_sample_list = self.db.require_dataset(
+                "/data/DA_samples", shape=(len(sample_list),), dtype=np.int32, exact=True)
+        except TypeError:
+            del self.db["/data/DA_samples"]
+            self.db_sample_list = self.db.require_dataset(
+                "/data/DA_samples", shape=(len(sample_list),), dtype=np.int32, exact=True)
         
-            radiuses = self.static_extract_radiuses(
-                len(self.alpha), len(self.theta1), len(self.theta2),
-                sample, self.times, self.dr)
+        try:
+            self.radiuses = self.db.require_dataset(
+                "/data/DA_radiuses", shape=(len(sample_list), len(self.alpha), len(self.theta1), len(self.theta2)), dtype=np.float, exact=True)
+        except TypeError:
+            del self.db["/data/DA_radiuses"]
+            self.radiuses = self.db.require_dataset(
+                "/data/DA_radiuses", shape=(len(sample_list), len(self.alpha), len(self.theta1), len(self.theta2)), dtype=np.float, exact=True)
+        """
+        radiuses = np.empty((len(sample_list), len(self.alpha), len(self.theta1,), len(self.theta1)))
 
-            mod_radiuses = np.power(radiuses, 4)
-            mod_radiuses = integrate.trapz(mod_radiuses, x=self.theta2)
-            mod_radiuses = integrate.trapz(mod_radiuses, x=self.theta1)
-            mod_radiuses = integrate.trapz(mod_radiuses, x=self.alpha)
+        self.static_extract_radiuses(
+            len(self.alpha), len(self.theta1), len(self.theta2),
+            sample_list, self.times, self.dr, radiuses)
 
-            self.DA[i] = np.power(
-                mod_radiuses / (2 * self.theta1[-1] * self.theta2[-1]), 1/4)
-            e_alpha = np.mean(np.absolute(
-                radiuses[1:] - radiuses[:-1]), axis=(0, 1, 2)) ** 2
-            e_theta1 = np.mean(np.absolute(radiuses[:, 1:] -
-                                        radiuses[:, :-1]), axis=(0, 1, 2)) ** 2
-            e_theta2 = np.mean(np.absolute(radiuses[:, :, 1:] -
-                                        radiuses[:, :, :-1]), axis=(0, 1, 2)) ** 2
-            e_radius = self.dr ** 2
-            self.error[i] = np.sqrt(
-                (e_radius + e_alpha + e_theta1 + e_theta2) / 4)
+        mod_radiuses = np.power(radiuses, 4)
+        mod_radiuses = integrate.trapz(mod_radiuses, x=self.theta2)
+        mod_radiuses = integrate.trapz(mod_radiuses, x=self.theta1)
+        mod_radiuses = integrate.trapz(mod_radiuses, x=self.alpha)
+
+        self.DA = np.power(
+            mod_radiuses / (2 * self.theta1[-1] * self.theta2[-1]), 1/4)
+        
+        e_alpha = np.mean(
+            np.absolute(radiuses[:, 1:] - radiuses[:, :-1]),
+            axis=(1, 2, 3)) ** 2
+        e_theta1 = np.mean(
+            np.absolute(radiuses[:, :, 1:] - radiuses[:, :, :-1]),
+            axis=(1, 2, 3)) ** 2
+        e_theta2 = np.mean(
+            np.absolute(radiuses[:, :, :, 1:] - radiuses[:, :, :, :-1]),
+            axis=(1, 2, 3)) ** 2
+        e_radius = self.dr ** 2
+        self.error = np.sqrt(
+            (e_radius + e_alpha + e_theta1 + e_theta2) / 4)
         return self.DA, self.error
+
+    def create_weights_in_dataset(self, file_destination, f=lambda r, a, th1, th2: np.ones_like(a)):
+        dest = h5py.File(file_destination, mode="w")
+        weights = dest.create_dataset(
+            "/data/weights", (self.db.attrs["radial_samples"], len(self.db.attrs["alpha"]), len(self.db.attrs["theta1"]), len(self.db.attrs["theta2"])), dtype=np.float, compression="lzf")
+        
+        for i in tqdm(range(0, len(self.r_list), 10), desc="assigning weights"):
+            rr, aa, th1, th2 = np.meshgrid(
+                self.r_list[i: min(i + 10, len(self.r_list))
+                       ], self.alpha, self.theta1, self.theta2, indexing='ij'
+            )
+            weights[i: min(i + 10, len(self.r_list))
+                         ] = f(rr, aa, th1, th2)
+        
+        dest.close()
+
+    def assign_weights_from_file(self, file):
+        self.weight_db = h5py.File(file, mode="r")
+        self.weights = self.weight_db["/data/weights"]
 
     def assign_weights(self, f=lambda r, a, th1, th2: np.ones_like(a)):
         """Assign weights to the various radial samples computed (not-so-intuitive to setup, beware...).
@@ -1331,39 +1366,41 @@ class uniform_radial_scanner(object):
 
         prelim_values = np.empty(self.r_list.size)
 
-        for i, r in tqdm(enumerate(self.r_list), desc="integration...", total=len(self.r_list)):
-            if r > cutting_point:
-                prelim_values[i] = 0.0
-            else:
-                prelim_values[i] = integrate.trapz(
+        prelim_values[self.r_list > cutting_point] = 0.0
+        
+        for i in range(0, np.argmin(self.r_list <= cutting_point), 500):
+            top_i = min(i + 500, np.argmin(self.r_list <= cutting_point))
+            
+            prelim_values[i : top_i] = integrate.trapz(
+                integrate.trapz(
+                    integrate.trapz(
+                        self.weights[i : top_i],
+                        self.theta2
+                    ),
+                    self.theta1
+                ),
+                self.alpha
+            )
+        baseline = integrate.trapz(prelim_values, self.r_list)
+
+        values = np.empty(len(sample_list))
+        for j, sample in tqdm(enumerate(sample_list), desc="other integrals...", total=len(sample_list)):
+            prelim_values = np.empty(self.r_list.size)
+            prelim_values[self.r_list > cutting_point] = 0.0
+
+            for i in range(0, np.argmin(self.r_list <= cutting_point), 1000):
+                top_i = min(i + 1000, np.argmin(self.r_list <= cutting_point))
+
+                prelim_values[i: top_i] = integrate.trapz(
                     integrate.trapz(
                         integrate.trapz(
-                            self.weights[i],
+                            self.weights[i: top_i] * (self.times[i: top_i] >= sample),
                             self.theta2
                         ),
                         self.theta1
                     ),
                     self.alpha
                 )
-        baseline = integrate.trapz(prelim_values, self.r_list)
-
-        values = np.empty(len(sample_list))
-        for j, sample in tqdm(enumerate(sample_list), desc="other integrals...", total=len(self.sample_list)):
-            prelim_values = np.empty(self.r_list.size)
-            for i, r in tqdm(enumerate(self.r_list), desc="integration...", total=len(self.r_list)):
-                if r > cutting_point:
-                    prelim_values[i] = 0.0
-                else:
-                    prelim_values[i] = integrate.trapz(
-                        integrate.trapz(
-                            integrate.trapz(
-                                self.weights[i] * (self.times[i] >= sample),
-                                self.theta2
-                            ),
-                            self.theta1
-                        ),
-                        self.alpha
-                    )
             values[j] = integrate.trapz(prelim_values, self.r_list)
 
         if normalization:
