@@ -89,10 +89,38 @@ def henon_map_to_the_end(c_x, c_px, c_y, c_py, limit, max_iterations, omega_x, o
             while not (check_boundary(x, px, y, py, limit) or steps[d1, d2, d3] > max_iterations):
                 temp1 = px + x * x - y * y
                 temp2 = py - 2 * x * y
-                
+
                 x, px = rotation(x, temp1, omega_x[i])
                 y, py = rotation(y, temp2, omega_y[i])
-                
+
+                i += 1
+                steps[d1, d2, d3] += 1
+            i -= 1
+            steps[d1, d2, d3] -= 1
+        else:
+            steps[d1, d2, d3] = max_iterations
+    return steps
+
+
+@njit(parallel=True)
+def octo_henon_map_to_the_end(c_x, c_px, c_y, c_py, limit, max_iterations, omega_x, omega_y, mu, bool_mask):
+    steps = np.zeros(c_x.shape, dtype=numba.int32)
+    for j in prange(steps.size):
+        d1, d2, d3 = get_3d_index(j, len(steps))
+        if bool_mask[d1, d2, d3]:
+            i = int(steps[d1, d2, d3])
+            x = c_x[d1, d2, d3]
+            px = c_px[d1, d2, d3]
+            y = c_y[d1, d2, d3]
+            py = c_py[d1, d2, d3]
+
+            while not (check_boundary(x, px, y, py, limit) or steps[d1, d2, d3] > max_iterations):
+                temp1 = px + x * x - y * y + mu * (x * x * x - 3 * x * y * y)
+                temp2 = py - 2 * x * y + mu * (3 * x * x * y - y * y * y)
+
+                x, px = rotation(x, temp1, omega_x[i])
+                y, py = rotation(y, temp2, omega_y[i])
+
                 i += 1
                 steps[d1, d2, d3] += 1
             i -= 1

@@ -400,10 +400,38 @@ class cpu_uniform_scan(uniform_scan):
         omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
 
         for i in tqdm(range(len(self.times))):
-            px, y, py  = np.meshgrid(self.coords, self.coords, self.coords)
+            px, y, py = np.meshgrid(self.coords, self.coords, self.coords)
             x = np.ones_like(px) * self.coords[i]
             self.times[i] = cpu.henon_map_to_the_end(
                 x, px, y, py, 10.0, max_turns, omega_x, omega_y, self.bool_mask[i]
+            )
+
+    def scan_octo(self, max_turns, mu):
+        """Execute a scanning of everything
+
+        Parameters
+        ----------
+        max_turns : int
+            turn limit
+
+        mu : float
+            mu parameter
+
+        Returns
+        -------
+        ndarray
+            4d array with stable iterations inside
+        """
+        self.db.attrs["max_turns"] = max_turns
+        self.db.attrs["mu"] = mu
+
+        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
+
+        for i in tqdm(range(len(self.times))):
+            px, y, py = np.meshgrid(self.coords, self.coords, self.coords)
+            x = np.ones_like(px) * self.coords[i]
+            self.times[i] = cpu.octo_henon_map_to_the_end(
+                x, px, y, py, 10.0, max_turns, omega_x, omega_y, mu, self.bool_mask[i]
             )
 
 
@@ -476,6 +504,54 @@ class gpu_uniform_scan(uniform_scan):
 
             gpu.henon_map_to_the_end[blocks_per_grid, threads_per_block](
                 d_x, d_px, d_y, d_py, d_times, 10.0, max_turns, d_omega_x, d_omega_y, d_bool_mask
+            )
+
+            d_times.copy_to_host(t_f)
+            self.times[i] = t_f.reshape(x.shape)
+    
+    def scan_octo(self, max_turns, mu):
+        """Execute a scanning of everything
+
+        Parameters
+        ----------
+        max_turns : int
+            turn limit
+
+        mu : float
+            param
+
+        Returns
+        -------
+        ndarray
+            4d array with stable iterations inside
+        """
+        threads_per_block = 1024
+        blocks_per_grid = 10
+
+        self.db.attrs["max_turns"] = max_turns
+        self.db.attrs["mu"] = mu
+
+        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
+        d_omega_x = cuda.to_device(np.asarray(omega_x, dtype=np.float32))
+        d_omega_y = cuda.to_device(np.asarray(omega_y, dtype=np.float32))
+
+        t_f = np.empty(shape=(self.samples, self.samples,
+                              self.samples), dtype=np.int32).flatten()
+
+        for i in tqdm(range(len(self.times)), smoothing=1.0):
+            px, y, py = np.meshgrid(self.coords, self.coords, self.coords)
+            x = np.ones_like(px) * self.coords[i]
+
+            d_x = cuda.to_device(np.asarray(x, dtype=np.float32).flatten())
+            d_px = cuda.to_device(np.asarray(px, dtype=np.float32).flatten())
+            d_y = cuda.to_device(np.asarray(y, dtype=np.float32).flatten())
+            d_py = cuda.to_device(np.asarray(py, dtype=np.float32).flatten())
+            d_times = cuda.to_device(np.zeros(x.size, dtype=np.int32))
+            d_bool_mask = cuda.to_device(
+                np.asarray(self.bool_mask[i]).flatten())
+
+            gpu.octo_henon_map_to_the_end[blocks_per_grid, threads_per_block](
+                d_x, d_px, d_y, d_py, d_times, 10.0, max_turns, d_omega_x, d_omega_y, np.float32(mu), d_bool_mask
             )
 
             d_times.copy_to_host(t_f)
@@ -895,6 +971,26 @@ class cpu_radial_block(radial_block):
                 self.times[i] = cpu.henon_map_to_the_end(
                     x, px, y, py, 10.0, max_turns, omega_x, omega_y, self.bool_mask[i]
                 )
+    
+    def scan_octo(self, max_turns, mu):
+        self.db.attrs["max_turns"] = max_turns
+        self.db.attrs["mu"] = mu
+
+        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
+
+        aa, th1, th2 = np.meshgrid(
+            self.alpha, self.theta1, self.theta2, indexing='ij'
+        )
+
+        for i in tqdm(range(len(self.times)), smoothing=1.0):
+            if self.r_list[i] < self.starting_radius:
+                self.times[i] = max_turns
+            else:
+                x, px, y, py = polar_to_cartesian(self.r_list[i], aa, th1, th2)
+
+                self.times[i] = cpu.octo_henon_map_to_the_end(
+                    x, px, y, py, 10.0, max_turns, omega_x, omega_y, mu, self.bool_mask[i]
+                )
         
 
 class gpu_radial_block(radial_block):
@@ -935,7 +1031,7 @@ class gpu_radial_block(radial_block):
     def scan(self, max_turns):
         threads_per_block = 512
         blocks_per_grid = 10
-        
+
         self.db.attrs["max_turns"] = max_turns
 
         omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
@@ -957,11 +1053,48 @@ class gpu_radial_block(radial_block):
                 d_px = cuda.to_device(px.flatten())
                 d_y = cuda.to_device(y.flatten())
                 d_py = cuda.to_device(py.flatten())
-                d_bool_mask = cuda.to_device(np.asarray(self.bool_mask[i]).flatten())
+                d_bool_mask = cuda.to_device(
+                    np.asarray(self.bool_mask[i]).flatten())
                 d_times = cuda.to_device(np.zeros(x.size, dtype=np.int32))
 
                 gpu.henon_map_to_the_end[blocks_per_grid, threads_per_block](
                     d_x, d_px, d_y, d_py, d_times, 10.0, max_turns, d_omega_x, d_omega_y, d_bool_mask
+                )
+
+                d_times.copy_to_host(t_f)
+                self.times[i] = t_f.reshape(x.shape)
+    
+    def scan_octo(self, max_turns, mu):
+        threads_per_block = 1024
+        blocks_per_grid = 10
+
+        self.db.attrs["max_turns"] = max_turns
+        self.db.attrs["mu"] = mu
+
+        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
+        d_omega_x = cuda.to_device(np.asarray(omega_x, dtype=np.float32))
+        d_omega_y = cuda.to_device(np.asarray(omega_y, dtype=np.float32))
+
+        t_f = np.empty(shape=(len(self.alpha), len(
+            self.theta1), len(self.theta2)), dtype=np.int32).flatten()
+        aa, th1, th2 = np.meshgrid(
+            self.alpha, self.theta1, self.theta2, indexing='ij'
+        )
+
+        for i in tqdm(range(len(self.times)), smoothing=1.0):
+            if self.r_list[i] < self.starting_radius:
+                self.times[i] = max_turns
+            else:
+                x, px, y, py = polar_to_cartesian(self.r_list[i], aa, th1, th2)
+                d_x = cuda.to_device(np.asarray(x, dtype=np.float32).flatten())
+                d_px = cuda.to_device(np.asarray(px, dtype=np.float32).flatten())
+                d_y = cuda.to_device(np.asarray(y, dtype=np.float32).flatten())
+                d_py = cuda.to_device(np.asarray(py, dtype=np.float32).flatten())
+                d_bool_mask = cuda.to_device(np.asarray(self.bool_mask[i]).flatten())
+                d_times = cuda.to_device(np.zeros(x.size, dtype=np.int32))
+
+                gpu.octo_henon_map_to_the_end[blocks_per_grid, threads_per_block](
+                    d_x, d_px, d_y, d_py, d_times, 10.0, max_turns, d_omega_x, d_omega_y, np.float32(mu), d_bool_mask
                 )
 
                 d_times.copy_to_host(t_f)

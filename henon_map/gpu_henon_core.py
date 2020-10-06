@@ -179,6 +179,61 @@ def henon_map_to_the_end(c_x, c_px, c_y, c_py, steps, c_limit, c_max_iterations,
 
 
 @cuda.jit
+def octo_henon_map_to_the_end(c_x, c_px, c_y, c_py, steps, c_limit, c_max_iterations, omega_x, omega_y, c_mu, bool_mask):
+    i = cuda.threadIdx.x
+    j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
+
+    # Let's make it float32...
+
+    limit = cuda.shared.array(shape=(1), dtype=numba.float32)
+    max_iterations = cuda.shared.array(shape=(1), dtype=numba.int32)
+    mu = cuda.shared.array(shape=(1), dtype=numba.float32)
+    if i == 0:
+        limit[0] = c_limit
+        max_iterations[0] = c_max_iterations
+        mu[0] = c_mu
+    # allocate shared memory
+    x = cuda.shared.array(shape=(1024), dtype=numba.float32)
+    px = cuda.shared.array(shape=(1024), dtype=numba.float32)
+    y = cuda.shared.array(shape=(1024), dtype=numba.float32)
+    py = cuda.shared.array(shape=(1024), dtype=numba.float32)
+
+    temp1 = cuda.shared.array(shape=(1024), dtype=numba.float32)
+    temp2 = cuda.shared.array(shape=(1024), dtype=numba.float32)
+
+    # begin with the radial optimized loop
+    while j < steps.shape[0]:  # Are we still inside the valid loop?
+
+        if steps[j] == 0:  # Are we using a new initial condition?
+            # filling the new initial condition
+            x[i] = c_x[j]
+            px[i] = c_px[j]
+            y[i] = c_y[j]
+            py[i] = c_py[j]
+
+        # Henon map iteration
+        temp1[i] = px[i] + x[i] * x[i] - y[i] * y[i] + mu[0] * (x[i] * x[i] * x[i] - 3 * x[i] * y[i] * y[i])
+        temp2[i] = py[i] - 2 * x[i] * y[i] + mu[0] * (3 * x[i] * x[i] * y[i] - y[i] * y[i] * y[i])
+
+        x[i], px[i] = rotation(x[i], temp1[i], omega_x[int(steps[j])])
+        y[i], py[i] = rotation(y[i], temp2[i], omega_y[int(steps[j])])
+
+        steps[j] += 1
+
+        # Have we lost the particle OR have we hit the limit OR was that useless?
+        if (check_boundary(x[i], px[i], y[i], py[i], limit[0]) or steps[j] > max_iterations[0] or (not bool_mask[j])):
+            # Remove last step OR fix it
+            if bool_mask[j]:
+                steps[j] -= 1
+            else:
+                steps[j] = max_iterations[0]
+            # Block skip to next initial condition!
+            j += 512 * 10
+    return
+
+
+
+@cuda.jit
 def henon_full_track(x, px, y, py, n_iterations, omega_x, omega_y):
     i = cuda.threadIdx.x
     j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
