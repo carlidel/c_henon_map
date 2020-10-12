@@ -1378,7 +1378,7 @@ class uniform_radial_scanner(object):
     @staticmethod
     def static_extract_radiuses(n_alpha, n_theta1, n_theta2, samples, times, dr, radius_db):
         for index, i1 in enumerate(range(n_alpha)):
-            print(index, "/", n_alpha, flush=True)
+            #print(index, "/", n_alpha, flush=True)
             #for i2 in range(n_theta1):
                 #for i3 in range(n_theta2):
             temp = times[:, i1, :, :]
@@ -1519,7 +1519,7 @@ class uniform_radial_scanner(object):
 
         values = np.empty(len(sample_list))
         for j, sample in enumerate(sample_list):
-            print("integral", j, "/", len(sample_list), flush=True)
+            #print("integral", j, "/", len(sample_list), flush=True)
             prelim_values = np.empty(self.r_list.size)
             prelim_values[self.r_list > cutting_point] = 0.0
 
