@@ -526,7 +526,7 @@ class gpu_uniform_scan(uniform_scan):
             4d array with stable iterations inside
         """
         threads_per_block = 512
-        blocks_per_grid = 20
+        blocks_per_grid = 10
 
         self.db.attrs["max_turns"] = max_turns
         self.db.attrs["mu"] = mu
@@ -1066,7 +1066,7 @@ class gpu_radial_block(radial_block):
     
     def scan_octo(self, max_turns, mu):
         threads_per_block = 512
-        blocks_per_grid = 20
+        blocks_per_grid = 10
 
         self.db.attrs["max_turns"] = max_turns
         self.db.attrs["mu"] = mu

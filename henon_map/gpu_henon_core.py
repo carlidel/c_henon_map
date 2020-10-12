@@ -183,23 +183,23 @@ def octo_henon_map_to_the_end(c_x, c_px, c_y, c_py, steps, c_limit, c_max_iterat
     i = cuda.threadIdx.x
     j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
 
-    # Let's make it float32...
+    # Let's make it float64...
 
-    limit = cuda.shared.array(shape=(1), dtype=numba.float32)
+    limit = cuda.shared.array(shape=(1), dtype=numba.float64)
     max_iterations = cuda.shared.array(shape=(1), dtype=numba.int32)
-    mu = cuda.shared.array(shape=(1), dtype=numba.float32)
+    mu = cuda.shared.array(shape=(1), dtype=numba.float64)
     if i == 0:
         limit[0] = c_limit
         max_iterations[0] = c_max_iterations
         mu[0] = c_mu
     # allocate shared memory
-    x = cuda.shared.array(shape=(1024), dtype=numba.float32)
-    px = cuda.shared.array(shape=(1024), dtype=numba.float32)
-    y = cuda.shared.array(shape=(1024), dtype=numba.float32)
-    py = cuda.shared.array(shape=(1024), dtype=numba.float32)
+    x = cuda.shared.array(shape=(512), dtype=numba.float64)
+    px = cuda.shared.array(shape=(512), dtype=numba.float64)
+    y = cuda.shared.array(shape=(512), dtype=numba.float64)
+    py = cuda.shared.array(shape=(512), dtype=numba.float64)
 
-    temp1 = cuda.shared.array(shape=(1024), dtype=numba.float32)
-    temp2 = cuda.shared.array(shape=(1024), dtype=numba.float32)
+    temp1 = cuda.shared.array(shape=(512), dtype=numba.float64)
+    temp2 = cuda.shared.array(shape=(512), dtype=numba.float64)
 
     # begin with the radial optimized loop
     while j < steps.shape[0]:  # Are we still inside the valid loop?
