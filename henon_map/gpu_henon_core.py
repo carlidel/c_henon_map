@@ -12,10 +12,22 @@ def rotation(x, p, angle):
 
 
 @cuda.jit(device=True)
+def premade_rotation(x, p, sin_a, cos_a):
+    a = + cos_a * x + sin_a * p
+    b = - sin_a * x + cos_a * p
+    return a, b
+
+
+@cuda.jit(device=True)
 def check_boundary(v0, v1, v2, v3, limit):
     if (math.isnan(v0) or math.isnan(v1) or math.isnan(v2) or math.isnan(v3)):
         return True
     return (v0 * v0 + v1 * v1 + v2 * v2 + v3 * v3 > limit)
+
+
+@cuda.jit(device=True)
+def check_boundary2(v02, v12, v22, v32, limit):
+    return (v02 + v12 + v22 + v32 > limit)
 
 
 @cuda.jit(device=True)
@@ -179,7 +191,7 @@ def henon_map_to_the_end(c_x, c_px, c_y, c_py, steps, c_limit, c_max_iterations,
 
 
 @cuda.jit
-def octo_henon_map_to_the_end(c_x, c_px, c_y, c_py, steps, c_limit, c_max_iterations, omega_x, omega_y, c_mu, bool_mask):
+def octo_henon_map_to_the_end(c_x, c_px, c_y, c_py, steps, c_limit, c_max_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos, c_mu, bool_mask):
     i = cuda.threadIdx.x
     j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
 
@@ -198,6 +210,9 @@ def octo_henon_map_to_the_end(c_x, c_px, c_y, c_py, steps, c_limit, c_max_iterat
     y = cuda.shared.array(shape=(512), dtype=numba.float64)
     py = cuda.shared.array(shape=(512), dtype=numba.float64)
 
+    x2 = cuda.shared.array(shape=(512), dtype=numba.float64)
+    y2 = cuda.shared.array(shape=(512), dtype=numba.float64)
+
     temp1 = cuda.shared.array(shape=(512), dtype=numba.float64)
     temp2 = cuda.shared.array(shape=(512), dtype=numba.float64)
 
@@ -210,18 +225,25 @@ def octo_henon_map_to_the_end(c_x, c_px, c_y, c_py, steps, c_limit, c_max_iterat
             px[i] = c_px[j]
             y[i] = c_y[j]
             py[i] = c_py[j]
+            x2[i] = x[i] * x[i]
+            y2[i] = y[i] * y[i]
 
         # Henon map iteration
-        temp1[i] = px[i] + x[i] * x[i] - y[i] * y[i] + mu[0] * (x[i] * x[i] * x[i] - 3 * x[i] * y[i] * y[i])
-        temp2[i] = py[i] - 2 * x[i] * y[i] + mu[0] * (3 * x[i] * x[i] * y[i] - y[i] * y[i] * y[i])
+        temp1[i] = px[i] + x2[i] - y2[i] + mu[0] * (x2[i] * x[i] - 3 * x[i] * y2[i])
+        temp2[i] = py[i] - 2 * x[i] * y[i] + mu[0] * (3 * x2[i] * y[i] - y2[i] * y[i])
 
-        x[i], px[i] = rotation(x[i], temp1[i], omega_x[int(steps[j])])
-        y[i], py[i] = rotation(y[i], temp2[i], omega_y[int(steps[j])])
+        x[i], px[i] = premade_rotation(
+            x[i], temp1[i], omega_x_sin[int(steps[j])], omega_x_cos[int(steps[j])])
+        y[i], py[i] = premade_rotation(
+            y[i], temp2[i], omega_y_sin[int(steps[j])], omega_y_cos[int(steps[j])])
+
+        x2[i] = x[i] * x[i]
+        y2[i] = y[i] * y[i]
 
         steps[j] += 1
 
         # Have we lost the particle OR have we hit the limit OR was that useless?
-        if (check_boundary(x[i], px[i], y[i], py[i], limit[0]) or steps[j] > max_iterations[0] or (not bool_mask[j])):
+        if (check_boundary2(x2[i], px[i] * px[i], y2[i], py[i] * py[i], limit[0]) or steps[j] > max_iterations[0] or (not bool_mask[j])):
             # Remove last step OR fix it
             if bool_mask[j]:
                 steps[j] -= 1

@@ -532,8 +532,19 @@ class gpu_uniform_scan(uniform_scan):
         self.db.attrs["mu"] = mu
 
         omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
-        d_omega_x = cuda.to_device(np.asarray(omega_x, dtype=np.float64))
-        d_omega_y = cuda.to_device(np.asarray(omega_y, dtype=np.float64))
+        omega_x_sin = np.sin(omega_x)
+        omega_x_cos = np.cos(omega_x)
+        omega_y_sin = np.sin(omega_y)
+        omega_y_cos = np.cos(omega_y)
+
+        d_omega_x_sin = cuda.to_device(
+            np.asarray(omega_x_sin, dtype=np.float64))
+        d_omega_x_cos = cuda.to_device(
+            np.asarray(omega_x_cos, dtype=np.float64))
+        d_omega_y_sin = cuda.to_device(
+            np.asarray(omega_y_sin, dtype=np.float64))
+        d_omega_y_cos = cuda.to_device(
+            np.asarray(omega_y_cos, dtype=np.float64))
 
         t_f = np.empty(shape=(self.samples, self.samples,
                               self.samples), dtype=np.int32).flatten()
@@ -551,7 +562,7 @@ class gpu_uniform_scan(uniform_scan):
                 np.asarray(self.bool_mask[i]).flatten())
 
             gpu.octo_henon_map_to_the_end[blocks_per_grid, threads_per_block](
-                d_x, d_px, d_y, d_py, d_times, 10.0, max_turns, d_omega_x, d_omega_y, np.float64(mu), d_bool_mask
+                d_x, d_px, d_y, d_py, d_times, 10.0, max_turns, d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos, np.float64(mu), d_bool_mask
             )
 
             d_times.copy_to_host(t_f)
@@ -1072,8 +1083,19 @@ class gpu_radial_block(radial_block):
         self.db.attrs["mu"] = mu
 
         omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
-        d_omega_x = cuda.to_device(np.asarray(omega_x, dtype=np.float64))
-        d_omega_y = cuda.to_device(np.asarray(omega_y, dtype=np.float64))
+        omega_x_sin = np.sin(omega_x)
+        omega_x_cos = np.cos(omega_x)
+        omega_y_sin = np.sin(omega_y)
+        omega_y_cos = np.cos(omega_y)
+
+        d_omega_x_sin = cuda.to_device(
+            np.asarray(omega_x_sin, dtype=np.float64))
+        d_omega_x_cos = cuda.to_device(
+            np.asarray(omega_x_cos, dtype=np.float64))
+        d_omega_y_sin = cuda.to_device(
+            np.asarray(omega_y_sin, dtype=np.float64))
+        d_omega_y_cos = cuda.to_device(
+            np.asarray(omega_y_cos, dtype=np.float64))
 
         t_f = np.empty(shape=(len(self.alpha), len(
             self.theta1), len(self.theta2)), dtype=np.int32).flatten()
@@ -1094,7 +1116,7 @@ class gpu_radial_block(radial_block):
                 d_times = cuda.to_device(np.zeros(x.size, dtype=np.int32))
 
                 gpu.octo_henon_map_to_the_end[blocks_per_grid, threads_per_block](
-                    d_x, d_px, d_y, d_py, d_times, 10.0, max_turns, d_omega_x, d_omega_y, np.float64(mu), d_bool_mask
+                    d_x, d_px, d_y, d_py, d_times, 10.0, max_turns, d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos, np.float64(mu), d_bool_mask
                 )
 
                 d_times.copy_to_host(t_f)
