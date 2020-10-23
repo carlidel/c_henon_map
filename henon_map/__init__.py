@@ -1389,7 +1389,7 @@ class uniform_radial_scanner(object):
             values = (values + 1) * dr
             radius_db[:, i1, :, :] = values
 
-    def compute_DA_standard(self, sample_list):
+    def compute_DA_standard(self, sample_list, get_radiuses=False):
         self.sample_list = sample_list
         """
         try:
@@ -1434,7 +1434,11 @@ class uniform_radial_scanner(object):
         e_radius = self.dr ** 2
         self.error = np.sqrt(
             (e_radius + e_alpha + e_theta1 + e_theta2) / 4)
-        return self.DA, self.error
+        
+        if not get_radiuses:
+            return self.DA, self.error
+        else:
+            return self.DA, self.error, radiuses
 
     def create_weights_in_dataset(self, file_destination, f=lambda r, a, th1, th2: np.ones_like(a)):
         dest = h5py.File(file_destination, mode="w")
