@@ -7,6 +7,7 @@ import pickle
 import time
 import tempfile
 import h5py
+from pynverse import inversefunc
 
 from . import gpu_henon_core as gpu
 from . import cpu_henon_core as cpu
@@ -1644,3 +1645,41 @@ def assign_generic_gaussian(sigma_x, sigma_px, sigma_y, sigma_py, polar=True):
     else:
         assert False  # Needs to be implemented lol
     return f
+
+
+def from_DA_to_loss_sym_gauss(sigma, DA_list, cut_point=None):
+    loss_list = np.empty_like(DA_list)
+    for i, DA in enumerate(DA_list):
+        loss_list[i] = integrate.quad(
+            lambda x: np.power(x, 2) *
+            np.exp(-(np.power(x, 2)/np.power(sigma, 2))),
+            0.0, DA
+        )[0]
+    if not(cut_point is None):
+        baseline = integrate.quad(
+            lambda x: np.power(x, 2) *
+            np.exp(-(np.power(x, 2)/np.power(sigma, 2))),
+            0.0, cut_point
+        )[0]
+        return loss_list / baseline
+    else:
+        return loss_list
+
+
+def from_loss_to_DA_sym_gauss(sigma, loss_list, cut_point):
+    baseline = integrate.quad(
+        lambda x: np.power(x, 2) *
+        np.exp(-(np.power(x, 2)/np.power(sigma, 2))),
+        0.0, cut_point
+    )[0]
+    def f(p):
+        return integrate.quad(
+            lambda x: np.power(x, 2) *
+            np.exp(-(np.power(x, 2)/np.power(sigma, 2))),
+            0.0, p
+        )[0] / baseline
+    i_f = inversefunc(f, domain=((0.0, cut_point)))
+    result = np.empty_like(loss_list)
+    for i in range(len(loss_list)):
+        result[i] = i_f(loss_list[i])
+    return result
