@@ -204,6 +204,9 @@ def octo_henon_map_to_the_end(c_x, c_px, c_y, c_py, steps, c_limit, c_max_iterat
         limit[0] = c_limit
         max_iterations[0] = c_max_iterations
         mu[0] = c_mu
+    
+    cuda.syncthreads()
+    
     # allocate shared memory
     x = cuda.shared.array(shape=(512), dtype=numba.float64)
     px = cuda.shared.array(shape=(512), dtype=numba.float64)

@@ -1433,6 +1433,9 @@ class uniform_radial_scanner(object):
         """
         radiuses = np.empty((len(sample_list), len(self.alpha), len(self.theta1,), len(self.theta1)))
 
+        # I HAVE A BUG THAT HAS TO BE FOUND
+        self.times[0] = self.times.max()
+
         self.static_extract_radiuses(
             len(self.alpha), len(self.theta1), len(self.theta2),
             sample_list, self.times, self.dr, radiuses)
