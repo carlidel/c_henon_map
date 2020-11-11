@@ -22,6 +22,20 @@ def cartesian_to_polar(x, px, y, py):
     return cpu.cartesian_to_polar(x, px, y, py)
 
 
+def circ_trapz(y, x, addendum):
+    shape = list(y.shape)
+    shape[-1] += 1
+    new_y = np.empty(shape)
+    new_y[..., :-1] = y[...]
+    new_y[..., -1] = y[..., 0]
+
+    new_x = np.empty(x.size + 1)
+    new_x[:-1] = x[...]
+    new_x[-1] = addendum
+
+    return integrate.trapz(new_y, new_x)
+
+
 @njit
 def modulation(epsilon, n_elements, first_index=0):
     """Generates a modulation
@@ -1389,7 +1403,6 @@ class uniform_radial_scanner(object):
         self.samples = self.db.attrs["radial_samples"]
         self.r_list, self.dr = np.linspace(
             0, self.max_radius, self.samples, retstep=True)
-        self.r_list = self.r_list[1:]
         self.alpha = self.db.attrs["alpha"]
         self.theta1 = self.db.attrs["theta1"]
         self.theta2 = self.db.attrs["theta2"]
@@ -1528,44 +1541,46 @@ class uniform_radial_scanner(object):
         if cutting_point == -1.0:
             cutting_point = self.db.attrs["max_radius"]
 
-        prelim_values = np.empty(self.r_list.size)
+        # COMPUTING BASELINE
+        prelim_values = np.zeros(self.r_list.size)
+        top_i = np.argmin(self.r_list <= cutting_point)
+        if top_i == 0:
+            top_i = len(self.weights)
+        prelim_values[: top_i] = integrate.trapz(
+            circ_trapz(
+                circ_trapz(
+                    self.weights[: top_i],
+                    self.theta2,
+                    np.pi * 2
+                ),
+                self.theta1,
+                np.pi * 2
+            ) * np.sin(self.alpha) * np.cos(self.alpha),
+            self.alpha
+        )
+        baseline = integrate.trapz(prelim_values * np.power(self.r_list, 3), self.r_list)
 
-        prelim_values[self.r_list > cutting_point] = 0.0
-        
-        for i in range(0, np.argmin(self.r_list <= cutting_point), 500):
-            top_i = min(i + 500, np.argmin(self.r_list <= cutting_point))
-            
-            prelim_values[i : top_i] = integrate.trapz(
-                integrate.trapz(
-                    integrate.trapz(
-                        self.weights[i : top_i],
-                        self.theta2
+        # COMPUTING THE REST
+        values = np.empty(len(sample_list))
+        for j, sample in enumerate(sample_list):
+            prelim_values = np.zeros(self.r_list.size)
+            ## THIS MAKES THE SAME CUTTING FOR THE WHOLE COMPUTATION ####
+            top_i = np.argmin(self.r_list <= cutting_point)
+            #############################################################
+            if top_i == 0:
+                top_i = len(self.weights)
+            prelim_values[: top_i] = integrate.trapz(
+                circ_trapz(
+                    circ_trapz(
+                        self.weights[: top_i] * (self.times[: top_i] >= sample),
+                        self.theta2,
+                        np.pi * 2
                     ),
-                    self.theta1
+                    self.theta1,
+                    np.pi * 2
                 ) * np.sin(self.alpha) * np.cos(self.alpha),
                 self.alpha
             )
-        baseline = integrate.trapz(prelim_values * np.power(self.r_list, 3), self.r_list)
-
-        values = np.empty(len(sample_list))
-        for j, sample in enumerate(sample_list):
-            #print("integral", j, "/", len(sample_list), flush=True)
-            prelim_values = np.empty(self.r_list.size)
-            prelim_values[self.r_list > cutting_point] = 0.0
-
-            for i in range(0, np.argmin(self.r_list <= cutting_point), 1000):
-                top_i = min(i + 1000, np.argmin(self.r_list <= cutting_point))
-
-                prelim_values[i: top_i] = integrate.trapz(
-                    integrate.trapz(
-                        integrate.trapz(
-                            self.weights[i: top_i] * (self.times[i: top_i] >= sample),
-                            self.theta2
-                        ),
-                        self.theta1
-                    ) * np.sin(self.alpha) * np.cos(self.alpha),
-                    self.alpha
-                )
             values[j] = integrate.trapz(prelim_values * np.power(self.r_list, 3), self.r_list)
 
         if normalization:
@@ -1585,19 +1600,21 @@ class uniform_radial_scanner(object):
         float
             the (not-normalized) value
         """
-        prelim_values = np.empty(self.r_list.size)
+        prelim_values = np.zeros(self.r_list.size)
 
         for i, r in tqdm(enumerate(self.r_list), desc="integration...", total=len(self.r_list)):
             if r > cutting_point:
                 prelim_values[i] = 0.0
             else:
                 prelim_values[i] = integrate.trapz(
-                    integrate.trapz(
-                        integrate.trapz(
+                    circ_trapz(
+                        circ_trapz(
                             self.weights[i],
-                            self.theta2
+                            self.theta2,
+                            np.pi * 2
                         ),
-                        self.theta1
+                        self.theta1,
+                        np.pi * 2
                     ) * np.sin(self.alpha) * np.cos(self.alpha),
                     self.alpha
                 )
@@ -1654,14 +1671,14 @@ def from_DA_to_loss_sym_gauss(sigma, DA_list, cut_point=None):
     loss_list = np.empty_like(DA_list)
     for i, DA in enumerate(DA_list):
         loss_list[i] = integrate.quad(
-            lambda x: np.power(x, 2) *
-            np.exp(-(np.power(x, 2)/np.power(sigma, 2))),
+            lambda x: np.power(x, 3) * np.power(np.pi, 2) *
+            2 * np.exp(- 0.5 * np.power(x / sigma, 2)),
             0.0, DA
         )[0]
     if not(cut_point is None):
         baseline = integrate.quad(
-            lambda x: np.power(x, 2) *
-            np.exp(-(np.power(x, 2)/np.power(sigma, 2))),
+            lambda x: np.power(x, 3) * np.power(np.pi, 2) *
+            2 * np.exp(- 0.5 * np.power(x / sigma, 2)),
             0.0, cut_point
         )[0]
         return loss_list / baseline
@@ -1671,14 +1688,14 @@ def from_DA_to_loss_sym_gauss(sigma, DA_list, cut_point=None):
 
 def from_loss_to_DA_sym_gauss(sigma, loss_list, cut_point):
     baseline = integrate.quad(
-        lambda x: np.power(x, 2) *
-        np.exp(-(np.power(x, 2)/np.power(sigma, 2))),
+        lambda x: np.power(x, 3) * np.power(np.pi, 2) *
+        2 * np.exp(- 0.5 * np.power(x / sigma, 2)),
         0.0, cut_point
     )[0]
     def f(p):
         return integrate.quad(
-            lambda x: np.power(x, 2) *
-            np.exp(-(np.power(x, 2)/np.power(sigma, 2))),
+            lambda x: np.power(x, 3) * np.power(np.pi, 2) *
+            2 * np.exp(- 0.5 * np.power(x / sigma, 2)),
             0.0, p
         )[0] / baseline
     i_f = inversefunc(f, domain=((0.0, cut_point)))
