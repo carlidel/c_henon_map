@@ -966,8 +966,7 @@ class cpu_radial_block(radial_block):
         self.db.attrs["theta1"] = theta1
         self.db.attrs["theta2"] = theta2
 
-        self.r_list, self.dr = np.linspace(0, max_radius, radial_samples + 1, retstep=True)
-        self.r_list = self.r_list[1:]
+        self.r_list, self.dr = np.linspace(0, max_radius, radial_samples, retstep=True)
         self.db.attrs["dr"] = self.dr
 
         self.bool_mask = self.db.create_dataset(
@@ -1042,7 +1041,6 @@ class gpu_radial_block(radial_block):
 
         self.r_list, self.dr = np.linspace(
             0, max_radius, radial_samples + 1, retstep=True)
-        self.r_list = self.r_list[1:]
         self.db.attrs["dr"] = self.dr
 
         self.bool_mask = self.db.create_dataset(
