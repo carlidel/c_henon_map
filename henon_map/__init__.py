@@ -37,7 +37,7 @@ def circ_trapz(y, x, addendum):
 
 
 @njit
-def modulation(epsilon, n_elements, first_index=0):
+def modulation(epsilon, n_elements, first_index=0, reversed=False):
     """Generates a modulation
     
     Parameters
@@ -68,8 +68,14 @@ def modulation(epsilon, n_elements, first_index=0):
                             7 * (2 * np.pi / 868.12),
                             10 * (2 * np.pi / 868.12),
                             12 * (2 * np.pi / 868.12)])
+
+    if not reversed:
+        number_list = list(range(first_index, first_index + n_elements))
+    else:
+        number_list = list(range(first_index - n_elements, first_index))[::-1]
+
     omega_sum = np.array([
-        np.sum(coefficients * np.cos(modulations * k)) for k in range(first_index, first_index + n_elements)
+        np.sum(coefficients * np.cos(modulations * k)) for k in number_list
     ])
     omega_x = 0.168 * 2 * np.pi * (1 + epsilon * omega_sum)
     omega_y = 0.201 * 2 * np.pi * (1 + epsilon * omega_sum)
@@ -77,57 +83,13 @@ def modulation(epsilon, n_elements, first_index=0):
 
 
 class partial_track(object):
-    """Kinda of a deprecated method. This class is meant to do a partial tracking (i.e. only last step is considered) of given initial condistions.
+    """[Updated version] - Basic partial tracker with no particular internal construct. Just dump your coordinates and do whatever you have to do with it!
     """
     def __init__(self):
         pass
 
-    def compute(self, n_iterations):
-        pass
-
-    def reset(self):
-        pass
-
-    def get_data(self):
-        """Get the data
-        
-        Returns
-        -------
-        tuple
-            (radius, alpha, theta1, theta2)
-        """
-        return self.r, self.alpha, self.theta1, self.theta2, self.step
-
-    def get_cartesian_data(self):
-        x, px, y, py = polar_to_cartesian(self.r, self.alpha, self.theta1, self.theta2)
-        return x, px, y, py, self.step
-
-    def get_radiuses(self):
-        return self.r
-
-    def get_filtered_radiuses(self):
-        return self.r[self.r != 0.0]
-
-    def get_times(self):
-        return self.step
-
-    def get_action(self):
-        return np.power(self.r, 2) / 2
-
-    def get_filtered_action(self):
-        return np.power(self.r[self.r != 0.0], 2) / 2
-
-    def get_survival_count(self):
-        return np.count_nonzero(self.r != 0.0)
-
-    def get_total_count(self):
-        return self.r.size
-
-    def get_survival_rate(self):
-        return np.count_nonzero(self.r != 0.0) / self.r.size
-
     @staticmethod
-    def generate_instance(radius, alpha, theta1, theta2, epsilon, cuda_device=None):
+    def generate_instance(x0, px0, y0, py0, cuda_device=None):
         """Generate an instance of the engine.
         
         Parameters
@@ -151,42 +113,31 @@ class partial_track(object):
         if cuda_device == None:
             cuda_device = cuda.is_available()
         if cuda_device:
-            return gpu_partial_track(radius, alpha, theta1, theta2, epsilon)
+            return gpu_partial_track(x0, px0, y0, py0)
         else:
-            return cpu_partial_track(radius, alpha, theta1, theta2, epsilon)
+            return cpu_partial_track(x0, px0, y0, py0)
 
 
 class cpu_partial_track(partial_track):
-    def __init__(self, radius, alpha, theta1, theta2, epsilon):
-        assert alpha.size == theta1.size
-        assert alpha.size == theta2.size
-        assert alpha.size == radius.size
+    def __init__(self, x0, px0, y0, py0, limit=100.0):
 
         # save data as members
-        self.r = radius
-        self.alpha = alpha
-        self.theta1 = theta1
-        self.theta2 = theta2
-        self.r_0 = radius.copy()
-        self.alpha_0 = alpha.copy()
-        self.theta1_0 = theta1.copy()
-        self.theta2_0 = theta2.copy()
-        self.epsilon = epsilon
+        self.x0 = x0.copy()
+        self.x  = x0.copy()
+        self.px0 = px0.copy()
+        self.px  = px0.copy()
+        self.y0 = y0.copy()
+        self.y  = y0.copy()
+        self.py0 = py0.copy()
+        self.py  = py0.copy()
+
+        # For the modulation
         self.total_iters = 0
-        self.limit = 1.0
+        self.step = np.zeros_like(self.x0)
 
-        # make containers
-        self.step = np.zeros((alpha.size), dtype=np.int)
+        self.limit = limit
 
-        self.x = np.empty(alpha.size)
-        self.px = np.empty(alpha.size)
-        self.y = np.empty(alpha.size)
-        self.py = np.empty(alpha.size)
-
-        self.x, self.px, self.y, self.py = cpu.polar_to_cartesian(
-            self.r_0, self.alpha_0, self.theta1_0, self.theta2_0)
-
-    def compute(self, n_iterations):
+    def compute(self, n_iterations, epsilon, mu=0.0):
         """Compute the tracking
         
         Returns
@@ -195,62 +146,88 @@ class cpu_partial_track(partial_track):
             (radius, alpha, theta1, theta2, steps)
         """
         omega_x, omega_y = modulation(
-            self.epsilon, n_iterations, self.total_iters)
+            epsilon, n_iterations, self.total_iters)
+
+        omega_x_cos = np.cos(omega_x)
+        omega_x_sin = np.sin(omega_x)
+        omega_y_cos = np.cos(omega_y)
+        omega_y_sin = np.sin(omega_y)
+
         # Execution
-        self.x, self.px, self.y, self.py, self.step = cpu.henon_partial_track(
-            self.x, self.px, self.y, self.py, self.step, self.limit,
-            n_iterations, omega_x, omega_y
-        )
+        if mu == 0.0:
+            self.x, self.px, self.y, self.py, self.step = cpu.henon_partial_track(
+                self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_cos, omega_y_sin
+            )
+        else:
+            self.x, self.px, self.y, self.py, self.step = cpu.octo_henon_partial_track(
+                self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_cos, omega_y_sin, mu
+            )
+
         self.total_iters += n_iterations
-        self.r, self.alpha, self.theta1, self.theta2 = cpu.cartesian_to_polar(
-            self.x, self.px, self.y, self.py)
         return self.x, self.px, self.y, self.py, self.step
-        #return self.r, self.alpha, self.theta1, self.theta2, self.step
+
+    def inverse_compute(self, n_iterations, epsilon):
+        omega_x, omega_y = modulation(
+            epsilon, n_iterations, self.total_iters, reversed=True)
+
+        omega_x_cos = np.cos(omega_x)
+        omega_x_sin = np.sin(omega_x)
+        omega_y_cos = np.cos(omega_y)
+        omega_y_sin = np.sin(omega_y)
+
+        # Execution
+        self.x, self.px, self.y, self.py, self.step = cpu.henon_inverse_partial_track(
+            self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_cos, omega_y_sin
+        )
+
+        self.total_iters -= n_iterations
+        return self.x, self.px, self.y, self.py, self.step
 
     def reset(self):
         """Resets the engine
         """        
-        self.r = self.r_0
-        self.alpha = self.alpha_0
-        self.theta1 = self.theta1_0
-        self.theta2 = self.theta2_0
-        self.step = np.zeros((self.alpha.size), dtype=np.int)
-        self.x, self.px, self.y, self.py = cpu.polar_to_cartesian(
-            self.r_0, self.alpha_0, self.theta1_0, self.theta2_0)
+        self.x = self.x0.copy()
+        self.px = self.px0.copy()
+        self.y = self.y0.copy()
+        self.py = self.py0.copy()
         self.total_iters = 0
+        self.step = np.zeros_like(self.x0)
+
+    def get_data(self):
+        return self.x, self.px, self.y, self.py, self.step
+    
+    def get_zero_data(self):
+        return self.x0, self.px0, self.y0, self.py0
 
 
 class gpu_partial_track(partial_track):
-    def __init__(self, radius, alpha, theta1, theta2, epsilon):
-        assert alpha.size == theta1.size
-        assert alpha.size == theta2.size
-        assert alpha.size == radius.size
+    def __init__(self, x0, px0, y0, py0, limit=100.0):
 
         # save data as members
-        self.r = radius
-        self.alpha = alpha
-        self.theta1 = theta1
-        self.theta2 = theta2
-        self.r_0 = radius.copy()
-        self.alpha_0 = alpha.copy()
-        self.theta1_0 = theta1.copy()
-        self.theta2_0 = theta2.copy()
-        self.epsilon = epsilon
+        self.x0 = x0.copy()
+        self.x = x0.copy()
+        self.d_x = cuda.to_device(x0)
+
+        self.px0 = px0.copy()
+        self.px = px0.copy()
+        self.d_px = cuda.to_device(px0)
+        
+        self.y0 = y0.copy()
+        self.y = y0.copy()
+        self.d_y = cuda.to_device(y0)
+
+        self.py0 = py0.copy()
+        self.py = py0.copy()
+        self.d_py = cuda.to_device(py0)
+
+        # For the modulation
         self.total_iters = 0
-        self.limit = 1.0
+        self.step = np.zeros_like(self.x0)
+        self.d_step = cuda.to_device(self.step)
 
-        # make containers
-        self.step = np.zeros((alpha.size), dtype=np.int)
+        self.limit = limit
 
-        self.x = np.empty(alpha.size)
-        self.px = np.empty(alpha.size)
-        self.y = np.empty(alpha.size)
-        self.py = np.empty(alpha.size)
-
-        self.x, self.px, self.y, self.py = cpu.polar_to_cartesian(
-            self.r_0, self.alpha_0, self.theta1_0, self.theta2_0)
-
-    def compute(self, n_iterations):
+    def compute(self, n_iterations, epsilon, mu=0.0):
         """Compute the tracking
         
         Returns
@@ -259,52 +236,85 @@ class gpu_partial_track(partial_track):
             (radius, alpha, theta1, theta2, steps)
         """
         threads_per_block = 512
-        blocks_per_grid = self.alpha.size // 512 + 1
-
-        # load to GPU
-        d_x = cuda.to_device(self.x)
-        d_y = cuda.to_device(self.y)
-        d_px = cuda.to_device(self.px)
-        d_py = cuda.to_device(self.py)
-        d_step = cuda.to_device(self.step)
+        blocks_per_grid = self.x0.size // 512 + 1
 
         omega_x, omega_y = modulation(
-            self.epsilon, n_iterations, self.total_iters)
-        d_omega_x = cuda.to_device(omega_x)
-        d_omega_y = cuda.to_device(omega_y)
+            epsilon, n_iterations, self.total_iters)
+        
+        d_omega_x_sin = cuda.to_device(np.sin(omega_x))
+        d_omega_x_cos = cuda.to_device(np.cos(omega_x))
+        d_omega_y_sin = cuda.to_device(np.sin(omega_y))
+        d_omega_y_cos = cuda.to_device(np.cos(omega_y))
 
         # Execution
-        gpu.henon_partial_track[blocks_per_grid, threads_per_block](
-            d_x, d_px, d_y, d_py, d_step, self.limit,
-            n_iterations, d_omega_x, d_omega_y
-        )
+        if mu == 0.0:
+            gpu.henon_partial_track[blocks_per_grid, threads_per_block](
+                self.d_x, self.d_px, self.d_y, self.d_py, self.d_step, self.limit,
+                n_iterations, d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos
+            )
+        else:
+            gpu.octo_henon_partial_track[blocks_per_grid, threads_per_block](
+                self.d_x, self.d_px, self.d_y, self.d_py, self.d_step, self.limit,
+                n_iterations, d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos, mu
+            )
         self.total_iters += n_iterations
 
-        d_x.copy_to_host(self.x)
-        d_y.copy_to_host(self.y)
-        d_px.copy_to_host(self.px)
-        d_py.copy_to_host(self.py)
-        d_step.copy_to_host(self.step)
+        self.d_x.copy_to_host(self.x)
+        self.d_y.copy_to_host(self.y)
+        self.d_px.copy_to_host(self.px)
+        self.d_py.copy_to_host(self.py)
+        self.d_step.copy_to_host(self.step)
         
-        self.r, self.alpha, self.theta1, self.theta2 = cpu.cartesian_to_polar(self.x, self.px, self.y, self.py)
+        return self.x, self.px, self.y, self.py, self.step
+        
+    def inverse_compute(self, n_iterations, epsilon):
+        threads_per_block = 512
+        blocks_per_grid = self.x0.size // 512 + 1
+
+        omega_x, omega_y = modulation(
+            epsilon, n_iterations, self.total_iters, reversed=True)
+
+        d_omega_x_cos = cuda.to_device(np.cos(omega_x))
+        d_omega_x_sin = cuda.to_device(np.sin(omega_x))
+        d_omega_y_cos = cuda.to_device(np.cos(omega_y))
+        d_omega_y_sin = cuda.to_device(np.sin(omega_y))
+
+        gpu.henon_inverse_partial_track[blocks_per_grid, threads_per_block](
+            self.d_x, self.d_px, self.d_y, self.d_py, self.d_step, self.limit,
+            n_iterations, d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos
+        )
+        self.total_iters -= n_iterations
+
+        self.d_x.copy_to_host(self.x)
+        self.d_y.copy_to_host(self.y)
+        self.d_px.copy_to_host(self.px)
+        self.d_py.copy_to_host(self.py)
+        self.d_step.copy_to_host(self.step)
 
         return self.x, self.px, self.y, self.py, self.step
-        #return self.r, self.alpha, self.theta1, self.theta2, self.step
 
     def reset(self):
         """Resets the engine
         """        
-        self.r = self.r_0
-        self.alpha = self.alpha_0
+        self.x = self.x0.copy()
+        self.px = self.px0.copy()
+        self.y = self.y0.copy()
+        self.py = self.py0.copy()
 
-        self.theta1 = self.theta1_0
-        self.theta2 = self.theta2_0
-        self.step = np.zeros((self.alpha.size), dtype=np.int)
-
-        self.x, self.px, self.y, self.py = gpu.actual_polar_to_cartesian(
-            self.r_0, self.alpha_0, self.theta1_0, self.theta2_0)
+        self.d_x = cuda.to_device(self.x0)
+        self.d_px = cuda.to_device(self.px0)
+        self.d_y = cuda.to_device(self.y0)
+        self.d_py = cuda.to_device(self.py0)
 
         self.total_iters = 0
+        self.step = np.zeros_like(self.x0)
+        self.d_step = cuda.to_device(self.step)
+
+    def get_data(self):
+        return self.x, self.px, self.y, self.py, self.step
+
+    def get_zero_data(self):
+        return self.x0, self.px0, self.y0, self.py0
 
 
 class uniform_scan(object):

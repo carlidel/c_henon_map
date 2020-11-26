@@ -5,16 +5,24 @@ import numba
 
 
 @cuda.jit(device=True)
-def rotation(x, p, angle):
-    a = + math.cos(angle) * x + math.sin(angle) * p
-    b = - math.sin(angle) * x + math.cos(angle) * p
+def rotation(x, p, angle, inverse):
+    if not inverse:
+        a = + math.cos(angle) * x + math.sin(angle) * p
+        b = - math.sin(angle) * x + math.cos(angle) * p
+    else:
+        a = + math.cos(angle) * x - math.sin(angle) * p
+        b = + math.sin(angle) * x + math.cos(angle) * p
     return a, b
 
 
 @cuda.jit(device=True)
-def premade_rotation(x, p, sin_a, cos_a):
-    a = + cos_a * x + sin_a * p
-    b = - sin_a * x + cos_a * p
+def premade_rotation(x, p, sin_a, cos_a, inverse):
+    if not inverse:
+        a = + cos_a * x + sin_a * p
+        b = - sin_a * x + cos_a * p
+    else:
+        a = + cos_a * x - sin_a * p
+        b = + sin_a * x + cos_a * p
     return a, b
 
 
@@ -128,8 +136,10 @@ def henon_map(c_alpha, c_theta1, c_theta2, c_dr, step, c_limit, c_max_iterations
                 temp1[i] = px[i] + x[i] * x[i] - y[i] * y[i]
                 temp2[i] = py[i] - 2 * x[i] * y[i]
 
-                x[i], px[i] = rotation(x[i], temp1[i], omega_x[k])
-                y[i], py[i] = rotation(y[i], temp2[i], omega_y[k])
+                x[i], px[i] = rotation(
+                    x[i], temp1[i], omega_x[k], False)
+                y[i], py[i] = rotation(
+                    y[i], temp2[i], omega_y[k], False)
                 if check_boundary(x[i], px[i], y[i], py[i], limit[0]):
                     step_local[i] -= 1
                     cuda.syncthreads()
@@ -173,8 +183,10 @@ def henon_map_to_the_end(c_x, c_px, c_y, c_py, steps, c_limit, c_max_iterations,
         temp1[i] = px[i] + x[i] * x[i] - y[i] * y[i]
         temp2[i] = py[i] - 2 * x[i] * y[i]
 
-        x[i], px[i] = rotation(x[i], temp1[i], omega_x[int(steps[j])])
-        y[i], py[i] = rotation(y[i], temp2[i], omega_y[int(steps[j])])
+        x[i], px[i] = rotation(
+            x[i], temp1[i], omega_x[int(steps[j])], False)
+        y[i], py[i] = rotation(
+            y[i], temp2[i], omega_y[int(steps[j])], False)
 
         steps[j] += 1
 
@@ -236,9 +248,9 @@ def octo_henon_map_to_the_end(c_x, c_px, c_y, c_py, steps, c_limit, c_max_iterat
         temp2[i] = py[i] - 2 * x[i] * y[i] + mu[0] * (3 * x2[i] * y[i] - y2[i] * y[i])
 
         x[i], px[i] = premade_rotation(
-            x[i], temp1[i], omega_x_sin[int(steps[j])], omega_x_cos[int(steps[j])])
+            x[i], temp1[i], omega_x_sin[int(steps[j])], omega_x_cos[int(steps[j])], False)
         y[i], py[i] = premade_rotation(
-            y[i], temp2[i], omega_y_sin[int(steps[j])], omega_y_cos[int(steps[j])])
+            y[i], temp2[i], omega_y_sin[int(steps[j])], omega_y_cos[int(steps[j])], False)
 
         x2[i] = x[i] * x[i]
         y2[i] = y[i] * y[i]
@@ -268,10 +280,12 @@ def henon_full_track(x, px, y, py, n_iterations, omega_x, omega_y):
     while j < x.shape[1]:
         temp[i] = (px[k - 1][j] 
             + x[k - 1][j] * x[k - 1][j] - y[k - 1][j] * y[k - 1][j])
-        x[k][j], px[k][j] = rotation(x[k - 1][j], temp[i], omega_x[k - 1]) 
+        x[k][j], px[k][j] = rotation(
+            x[k - 1][j], temp[i], omega_x[k - 1], False)
         temp[i] = (py[k - 1][j] 
             - 2 * x[k - 1][j] * y[k - 1][j])
-        y[k][j], py[k][j] = rotation(y[k - 1][j], temp[i], omega_y[k - 1])
+        y[k][j], py[k][j] = rotation(
+            y[k - 1][j], temp[i], omega_y[k - 1], False)
         if(check_boundary(x[k][j], px[k][j], y[k][j], py[k][j], 1.0) or k >= n_iterations[j]):
             x[k][j] = np.nan
             px[k][j] = np.nan
@@ -285,7 +299,7 @@ def henon_full_track(x, px, y, py, n_iterations, omega_x, omega_y):
 
 
 @cuda.jit
-def henon_partial_track(g_x, g_px, g_y, g_py, g_steps, limit, max_iterations, omega_x, omega_y):
+def henon_partial_track(g_x, g_px, g_y, g_py, g_steps, limit, max_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos):
     i = cuda.threadIdx.x
     j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
 
@@ -304,23 +318,120 @@ def henon_partial_track(g_x, g_px, g_y, g_py, g_steps, limit, max_iterations, om
         py[i] = g_py[j]
         steps[i] = g_steps[j]
 
-        cuda.syncthreads()
-
         for k in range(max_iterations):
             temp1[i] = (px[i] + x[i] * x[i] - y[i] * y[i])
             temp2[i] = (py[i] - 2 * x[i] * y[i])
 
-            x[i], px[i] = rotation(x[i], temp1[i], omega_x[k])
-            y[i], py[i] = rotation(y[i], temp2[i], omega_y[k])
-            if(check_boundary(x[i], px[i], y[i], py[i], limit) or (x[i] == 0.0 and px[i] == 0.0 and y[i] == 0.0 and py[i] == 0.0)):
-                x[i] = 0.0
-                px[i] = 0.0
-                y[i] = 0.0
-                py[i] = 0.0
+            x[i], px[i] = premade_rotation(
+                x[i], temp1[i], omega_x_sin[k], omega_x_cos[k], False)
+            y[i], py[i] = premade_rotation(
+                y[i], temp2[i], omega_y_sin[k], omega_y_cos[k], False)
+
+            if(check_boundary(x[i], px[i], y[i], py[i], limit) or (math.isnan(x[i]) or math.isnan(px[i]) or math.isnan(y[i]) or math.isnan(py[i]))):
+                x[i] = math.nan
+                px[i] = math.nan
+                y[i] = math.nan
+                py[i] = math.nan
                 break
             steps[i] += 1
 
-        cuda.syncthreads()
+        g_x[j] = x[i]
+        g_y[j] = y[i]
+        g_px[j] = px[i]
+        g_py[j] = py[i]
+        g_steps[j] = steps[i]
+
+
+@cuda.jit
+def henon_inverse_partial_track(g_x, g_px, g_y, g_py, g_steps, limit, max_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos):
+    i = cuda.threadIdx.x
+    j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
+
+    x = cuda.shared.array(shape=(512), dtype=numba.float64)
+    y = cuda.shared.array(shape=(512), dtype=numba.float64)
+    px = cuda.shared.array(shape=(512), dtype=numba.float64)
+    py = cuda.shared.array(shape=(512), dtype=numba.float64)
+    steps = cuda.shared.array(shape=(512), dtype=numba.int32)
+
+    if(j < g_x.shape[0]):
+        x[i] = g_x[j]
+        y[i] = g_y[j]
+        px[i] = g_px[j]
+        py[i] = g_py[j]
+        steps[i] = g_steps[j]
+
+        for k in range(max_iterations):
+            x[i], px[i] = premade_rotation(
+                x[i], px[i], omega_x_sin[k], omega_x_cos[k], True)
+            y[i], py[i] = premade_rotation(
+                y[i], py[i], omega_y_sin[k], omega_y_cos[k], True)
+
+            px[i] = px[i] - (x[i] * x[i] - y[i] * y[i])
+            py[i] = py[i] + 2 * x[i] * y[i]
+
+            if(check_boundary(x[i], px[i], y[i], py[i], limit) or (math.isnan(x[i]) or math.isnan(px[i]) or math.isnan(y[i]) or math.isnan(py[i]))):
+                x[i] = math.nan
+                px[i] = math.nan
+                y[i] = math.nan
+                py[i] = math.nan
+                break
+            steps[i] -= 1
+
+        g_x[j] = x[i]
+        g_y[j] = y[i]
+        g_px[j] = px[i]
+        g_py[j] = py[i]
+        g_steps[j] = steps[i]
+
+
+@cuda.jit
+def octo_henon_partial_track(g_x, g_px, g_y, g_py, g_steps, limit, max_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos, mu):
+    i = cuda.threadIdx.x
+    j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
+
+    x = cuda.shared.array(shape=(512), dtype=numba.float64)
+    y = cuda.shared.array(shape=(512), dtype=numba.float64)
+    px = cuda.shared.array(shape=(512), dtype=numba.float64)
+    py = cuda.shared.array(shape=(512), dtype=numba.float64)
+
+    x2 = cuda.shared.array(shape=(512), dtype=numba.float64)
+    y2 = cuda.shared.array(shape=(512), dtype=numba.float64)
+
+    temp1 = cuda.shared.array(shape=(512), dtype=numba.float64)
+    temp2 = cuda.shared.array(shape=(512), dtype=numba.float64)
+    steps = cuda.shared.array(shape=(512), dtype=numba.int32)
+
+    if(j < g_x.shape[0]):
+        x[i] = g_x[j]
+        y[i] = g_y[j]
+        px[i] = g_px[j]
+        py[i] = g_py[j]
+        steps[i] = g_steps[j]
+        
+        x2[i] = x[i] * x[i]
+        y2[i] = y[i] * y[i]
+
+        for k in range(max_iterations):
+            temp1[i] = (px[i] + x2[i] - y2[i] + mu *
+                        (x2[i] * x[i] - 3 * x[i] * y2[i]))
+            temp2[i] = (py[i] - 2 * x[i] * y[i] + mu *
+                        (3 * x2[i] * y[i] - y2[i] * y[i]))
+
+            x[i], px[i] = premade_rotation(
+                x[i], temp1[i], omega_x_sin[k], omega_x_cos[k], False)
+            y[i], py[i] = premade_rotation(
+                y[i], temp2[i], omega_y_sin[k], omega_y_cos[k], False)
+
+            if(check_boundary(x[i], px[i], y[i], py[i], limit) or (math.isnan(x[i]) or math.isnan(px[i]) or math.isnan(y[i]) or math.isnan(py[i]))):
+                x[i] = math.nan
+                px[i] = math.nan
+                y[i] = math.nan
+                py[i] = math.nan
+                break
+            steps[i] += 1
+            x2[i] = x[i] * x[i]
+            y2[i] = y[i] * y[i]
+
         g_x[j] = x[i]
         g_y[j] = y[i]
         g_px[j] = px[i]

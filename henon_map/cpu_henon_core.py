@@ -5,9 +5,24 @@ import numba
 
 
 @njit
-def rotation(x, p, angle):
-    a = + np.cos(angle) * x + np.sin(angle) * p
-    b = - np.sin(angle) * x + np.cos(angle) * p
+def rotation(x, p, angle, inverse):
+    if not inverse:
+        a = + np.cos(angle) * x + np.sin(angle) * p
+        b = - np.sin(angle) * x + np.cos(angle) * p
+    else:
+        a = + np.cos(angle) * x - np.sin(angle) * p
+        b = + np.sin(angle) * x + np.cos(angle) * p
+    return a, b
+
+
+@njit
+def premade_rotation(x, p, sin_a, cos_a, inverse):
+    if not inverse:
+        a = + cos_a * x + sin_a * p
+        b = - sin_a * x + cos_a * p
+    else:
+        a = + cos_a * x - sin_a * p
+        b = + sin_a * x + cos_a * p
     return a, b
 
 
@@ -52,8 +67,8 @@ def henon_map(alpha, theta1, theta2, dr, step, limit, max_iterations, omega_x, o
                 temp1 = px + x * x - y * y
                 temp2 = py - 2 * x * y
 
-                x, px = rotation(x, temp1, omega_x[k])
-                y, py = rotation(y, temp2, omega_y[k])
+                x, px = rotation(x, temp1, omega_x[k], inverse=False)
+                y, py = rotation(y, temp2, omega_y[k], inverse=False)
                 if check_boundary(x, px, y, py, limit):
                     step[j] -= 1
                     flag = False
@@ -90,8 +105,8 @@ def henon_map_to_the_end(c_x, c_px, c_y, c_py, limit, max_iterations, omega_x, o
                 temp1 = px + x * x - y * y
                 temp2 = py - 2 * x * y
 
-                x, px = rotation(x, temp1, omega_x[i])
-                y, py = rotation(y, temp2, omega_y[i])
+                x, px = rotation(x, temp1, omega_x[i], inverse=False)
+                y, py = rotation(y, temp2, omega_y[i], inverse=False)
 
                 i += 1
                 steps[d1, d2, d3] += 1
@@ -118,8 +133,8 @@ def octo_henon_map_to_the_end(c_x, c_px, c_y, c_py, limit, max_iterations, omega
                 temp1 = px + x * x - y * y + mu * (x * x * x - 3 * x * y * y)
                 temp2 = py - 2 * x * y + mu * (3 * x * x * y - y * y * y)
 
-                x, px = rotation(x, temp1, omega_x[i])
-                y, py = rotation(y, temp2, omega_y[i])
+                x, px = rotation(x, temp1, omega_x[i], inverse=False)
+                y, py = rotation(y, temp2, omega_y[i], inverse=False)
 
                 i += 1
                 steps[d1, d2, d3] += 1
@@ -135,7 +150,7 @@ def henon_map_2D(x, p, n_iters, limit, max_iterations, omega):
     for j in prange(x.size):
         for k in range(max_iterations):
             temp = p[j] + x[j] * x[j]
-            x[j], p[j] = rotation(x[j], temp, omega[k])
+            x[j], p[j] = rotation(x[j], temp, omega[k], inverse=False)
             if ((x[j] * x[j] + p[j] * p[j]) * 0.5 > limit 
                 or (x[j] == 0 and p[j] == 0)):
                 x[j] = 0.0
@@ -152,11 +167,13 @@ def henon_full_track(x, px, y, py, n_iterations, omega_x, omega_y):
         for k in range(1, n_iterations[j]):
             temp = (px[k - 1][j]
                     + x[k - 1][j] * x[k - 1][j] - y[k - 1][j] * y[k - 1][j])
-            x[k][j], px[k][j] = rotation(x[k - 1][j], temp, omega_x[k - 1])
+            x[k][j], px[k][j] = rotation(
+                x[k - 1][j], temp, omega_x[k - 1], inverse=False)
 
             temp = (py[k - 1][j]
                     - 2 * x[k - 1][j] * y[k - 1][j])
-            y[k][j], py[k][j] = rotation(y[k - 1][j], temp, omega_y[k - 1])
+            y[k][j], py[k][j] = rotation(
+                y[k - 1][j], temp, omega_y[k - 1], inverse=False)
 
             if (check_boundary(x[k][j], px[k][j], y[k][j], py[k][j], 1.0)):
                 x[k][j] = np.nan
@@ -233,19 +250,74 @@ def recursive_accumulation(count, matrices):
 
 
 @njit(parallel=True)
-def henon_partial_track(x, px, y, py, steps, limit, max_iterations, omega_x, omega_y):
+def henon_partial_track(x, px, y, py, steps, limit, max_iterations, sin_omega_x, cos_omega_x, sin_omega_y, cos_omega_y):
     for j in prange(len(x)):
         for k in range(max_iterations):
             temp1 = (px[j] + x[j] * x[j] - y[j] * y[j])
             temp2 = (py[j] - 2 * x[j] * y[j])
 
-            x[j], px[j] = rotation(x[j], temp1, omega_x[k])
-            y[j], py[j] = rotation(y[j], temp2, omega_y[k])
-            if(check_boundary(x[j], px[j], y[j], py[j], limit) or (x[j] == 0.0 and px[j] == 0.0 and y[j] == 0.0 and py[j] == 0.0)):
-                x[j] = 0.0
-                px[j] = 0.0
-                y[j] = 0.0
-                py[j] = 0.0
+            x[j], px[j] = premade_rotation(
+                x[j], temp1, sin_omega_x[k], cos_omega_x[k], inverse=False)
+            y[j], py[j] = premade_rotation(
+                y[j], temp2, sin_omega_y[k], cos_omega_y[k], inverse=False)
+            if((np.isnan(x[j]) or np.isnan(px[j]) or np.isnan(y[j]) or np.isnan(py[j])) or check_boundary(x[j], px[j], y[j], py[j], limit)):
+                x[j] = np.nan
+                px[j] = np.nan
+                y[j] = np.nan
+                py[j] = np.nan
+                break
+            steps[j] += 1
+    return x, px, y, py, steps
+
+
+@njit(parallel=True)
+def henon_inverse_partial_track(x, px, y, py, steps, limit, max_iterations, sin_omega_x, cos_omega_x, sin_omega_y, cos_omega_y):
+    for j in prange(len(x)):
+        for k in range(max_iterations):
+            x[j], px[j] = premade_rotation(
+                x[j], px[j], sin_omega_x[k], cos_omega_x[k], inverse=True)
+            y[j], py[j] = premade_rotation(
+                y[j], py[j], sin_omega_y[k], cos_omega_y[k], inverse=True)
+            
+            px[j] = px[j] - (x[j] * x[j] - y[j] * y[j])
+            py[j] = py[j] + 2 * x[j] * y[j]
+
+            if((np.isnan(x[j]) or np.isnan(px[j]) or np.isnan(y[j]) or np.isnan(py[j])) or check_boundary(x[j], px[j], y[j], py[j], limit)):
+                x[j] = np.nan
+                px[j] = np.nan
+                y[j] = np.nan
+                py[j] = np.nan
+                break
+            steps[j] -= 1
+    return x, px, y, py, steps
+
+
+@njit(parallel=True)
+def octo_henon_partial_track(x, px, y, py, steps, limit, max_iterations, sin_omega_x, cos_omega_x, sin_omega_y, cos_omega_y, mu):
+    for j in prange(len(x)):
+        for k in range(max_iterations):
+            temp1 = (
+                px[j] 
+                + x[j] * x[j] 
+                - y[j] * y[j] 
+                + mu * (
+                    x[j] * x[j] * x[j] 
+                    - 3 * x[j] * y[j] * y[j]))
+            temp2 = (
+                py[j] 
+                - 2 * x[j] * y[j] 
+                + mu * (
+                    3 * x[j] * x[j] * y[j] 
+                    - y[j] * y[j] * y[j]))
+            x[j], px[j] = premade_rotation(
+                x[j], temp1, sin_omega_x[k], cos_omega_x[k], inverse=False)
+            y[j], py[j] = premade_rotation(
+                y[j], temp2, sin_omega_y[k], cos_omega_y[k], inverse=False)
+            if((np.isnan(x[j]) or np.isnan(px[j]) or np.isnan(y[j]) or np.isnan(py[j])) or check_boundary(x[j], px[j], y[j], py[j], limit)):
+                x[j] = np.nan
+                px[j] = np.nan
+                y[j] = np.nan
+                py[j] = np.nan
                 break
             steps[j] += 1
     return x, px, y, py, steps
