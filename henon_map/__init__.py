@@ -156,11 +156,11 @@ class cpu_partial_track(partial_track):
         # Execution
         if mu == 0.0:
             self.x, self.px, self.y, self.py, self.step = cpu.henon_partial_track(
-                self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_cos, omega_y_sin
+                self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos
             )
         else:
             self.x, self.px, self.y, self.py, self.step = cpu.octo_henon_partial_track(
-                self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_cos, omega_y_sin, mu
+                self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos, mu
             )
 
         self.total_iters += n_iterations
@@ -177,7 +177,7 @@ class cpu_partial_track(partial_track):
 
         # Execution
         self.x, self.px, self.y, self.py, self.step = cpu.henon_inverse_partial_track(
-            self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_cos, omega_y_sin
+            self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos
         )
 
         self.total_iters -= n_iterations
