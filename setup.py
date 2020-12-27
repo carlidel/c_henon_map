@@ -6,7 +6,7 @@ import subprocess
 
 from setuptools import setup
 
-__version__ = '0.0.12'
+__version__ = '0.0.13'
 
 setup(
     name='henon_map',
