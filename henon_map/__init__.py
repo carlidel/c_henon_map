@@ -37,7 +37,7 @@ def circ_trapz(y, x, addendum):
 
 
 @njit
-def modulation(epsilon, n_elements, first_index=0, reversed=False):
+def modulation(epsilon, n_elements, first_index=0, reversed=False, kind="sps"):
     """Generates a modulation
     
     Parameters
@@ -48,38 +48,55 @@ def modulation(epsilon, n_elements, first_index=0, reversed=False):
         number of elements
     first_index : int, optional
         starting point of the modulation, by default 0
+    kind : string, optional
+        kind of modulation: "sps" or "simple" for now, by default "sps"
     
     Returns
     -------
     tuple of ndarray
         (omega_x, omega_y)
     """    
-    coefficients = np.array([1.000e-4,
-                             0.218e-4,
-                             0.708e-4,
-                             0.254e-4,
-                             0.100e-4,
-                             0.078e-4,
-                             0.218e-4])
-    modulations = np.array([1 * (2 * np.pi / 868.12),
-                            2 * (2 * np.pi / 868.12),
-                            3 * (2 * np.pi / 868.12),
-                            6 * (2 * np.pi / 868.12),
-                            7 * (2 * np.pi / 868.12),
-                            10 * (2 * np.pi / 868.12),
-                            12 * (2 * np.pi / 868.12)])
+    if "sps":
+        coefficients = np.array([1.000e-4,
+                                0.218e-4,
+                                0.708e-4,
+                                0.254e-4,
+                                0.100e-4,
+                                0.078e-4,
+                                0.218e-4])
+        modulations = np.array([1 * (2 * np.pi / 868.12),
+                                2 * (2 * np.pi / 868.12),
+                                3 * (2 * np.pi / 868.12),
+                                6 * (2 * np.pi / 868.12),
+                                7 * (2 * np.pi / 868.12),
+                                10 * (2 * np.pi / 868.12),
+                                12 * (2 * np.pi / 868.12)])
 
-    if not reversed:
-        number_list = list(range(first_index, first_index + n_elements))
+        if not reversed:
+            number_list = list(range(first_index, first_index + n_elements))
+        else:
+            number_list = list(range(first_index - n_elements, first_index))[::-1]
+
+        omega_sum = np.array([
+            np.sum(coefficients * np.cos(modulations * k)) for k in number_list
+        ])
+        omega_x = 0.168 * 2 * np.pi * (1 + epsilon * omega_sum)
+        omega_y = 0.201 * 2 * np.pi * (1 + epsilon * omega_sum)
+        return omega_x, omega_y
+    elif "simple":
+        omega = 2 * np.pi * 1.15e-3 * np.sqrt(2)
+        if not reversed:
+            number_list = list(range(first_index, first_index + n_elements))
+        else:
+            number_list = list(
+                range(first_index - n_elements, first_index))[::-1]
+        omega_x = 2 * np.pi * 0.201 * \
+            (1 + epsilon * np.cos(omega * number_list))
+        omega_y = 2 * np.pi * 0.168 * \
+            (1 + epsilon * np.cos(omega * number_list))
+        return omega_x, omega_y
     else:
-        number_list = list(range(first_index - n_elements, first_index))[::-1]
-
-    omega_sum = np.array([
-        np.sum(coefficients * np.cos(modulations * k)) for k in number_list
-    ])
-    omega_x = 0.168 * 2 * np.pi * (1 + epsilon * omega_sum)
-    omega_y = 0.201 * 2 * np.pi * (1 + epsilon * omega_sum)
-    return omega_x, omega_y
+        raise NotImplementedError
 
 
 class partial_track(object):
@@ -137,7 +154,7 @@ class cpu_partial_track(partial_track):
 
         self.limit = limit
 
-    def compute(self, n_iterations, epsilon, mu=0.0):
+    def compute(self, n_iterations, epsilon, mu=0.0, modulation_kind="sps"):
         """Compute the tracking
         
         Returns
@@ -146,7 +163,7 @@ class cpu_partial_track(partial_track):
             (radius, alpha, theta1, theta2, steps)
         """
         omega_x, omega_y = modulation(
-            epsilon, n_iterations, self.total_iters)
+            epsilon, n_iterations, self.total_iters, kind=modulation_kind)
 
         omega_x_cos = np.cos(omega_x)
         omega_x_sin = np.sin(omega_x)
@@ -166,9 +183,9 @@ class cpu_partial_track(partial_track):
         self.total_iters += n_iterations
         return self.x, self.px, self.y, self.py, self.step
 
-    def inverse_compute(self, n_iterations, epsilon):
+    def inverse_compute(self, n_iterations, epsilon, modulation_kind="sps"):
         omega_x, omega_y = modulation(
-            epsilon, n_iterations, self.total_iters, reversed=True)
+            epsilon, n_iterations, self.total_iters, reversed=True, kind=modulation_kind)
 
         omega_x_cos = np.cos(omega_x)
         omega_x_sin = np.sin(omega_x)
@@ -227,7 +244,7 @@ class gpu_partial_track(partial_track):
 
         self.limit = limit
 
-    def compute(self, n_iterations, epsilon, mu=0.0):
+    def compute(self, n_iterations, epsilon, mu=0.0, modulation_kind="sps"):
         """Compute the tracking
         
         Returns
@@ -239,7 +256,7 @@ class gpu_partial_track(partial_track):
         blocks_per_grid = self.x0.size // 512 + 1
 
         omega_x, omega_y = modulation(
-            epsilon, n_iterations, self.total_iters)
+            epsilon, n_iterations, self.total_iters, kind=modulation_kind)
         
         d_omega_x_sin = cuda.to_device(np.sin(omega_x))
         d_omega_x_cos = cuda.to_device(np.cos(omega_x))
@@ -267,12 +284,12 @@ class gpu_partial_track(partial_track):
         
         return self.x, self.px, self.y, self.py, self.step
         
-    def inverse_compute(self, n_iterations, epsilon):
+    def inverse_compute(self, n_iterations, epsilon, modulation_kind="sps"):
         threads_per_block = 512
         blocks_per_grid = self.x0.size // 512 + 1
 
         omega_x, omega_y = modulation(
-            epsilon, n_iterations, self.total_iters, reversed=True)
+            epsilon, n_iterations, self.total_iters, reversed=True, kind=modulation_kind)
 
         d_omega_x_cos = cuda.to_device(np.cos(omega_x))
         d_omega_x_sin = cuda.to_device(np.sin(omega_x))
@@ -407,7 +424,7 @@ class cpu_uniform_scan(uniform_scan):
         self.times = self.db.create_dataset(
             "/data/times", (self.samples, self.samples, self.samples, self.samples), dtype=np.int32, compression="lzf")
         
-    def scan(self, max_turns):
+    def scan(self, max_turns, modulation_kind="sps"):
         """Execute a scanning of everything
 
         Parameters
@@ -422,7 +439,7 @@ class cpu_uniform_scan(uniform_scan):
         """
         self.db.attrs["max_turns"] = max_turns
 
-        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
+        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns, kind=modulation_kind)
 
         for i in tqdm(range(len(self.times))):
             px, y, py = np.meshgrid(self.coords, self.coords, self.coords)
@@ -431,7 +448,7 @@ class cpu_uniform_scan(uniform_scan):
                 x, px, y, py, 10.0, max_turns, omega_x, omega_y, self.bool_mask[i]
             )
 
-    def scan_octo(self, max_turns, mu):
+    def scan_octo(self, max_turns, mu, modulation_kind="sps"):
         """Execute a scanning of everything
 
         Parameters
@@ -450,7 +467,7 @@ class cpu_uniform_scan(uniform_scan):
         self.db.attrs["max_turns"] = max_turns
         self.db.attrs["mu"] = mu
 
-        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
+        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns, kind=modulation_kind)
 
         for i in tqdm(range(len(self.times))):
             px, y, py = np.meshgrid(self.coords, self.coords, self.coords)
@@ -492,7 +509,7 @@ class gpu_uniform_scan(uniform_scan):
         self.times = self.db.create_dataset(
             "/data/times", (self.samples, self.samples, self.samples, self.samples), dtype=np.int32, compression="lzf")
 
-    def scan(self, max_turns):
+    def scan(self, max_turns, modulation_kind="sps"):
         """Execute a scanning of everything
 
         Parameters
@@ -510,7 +527,7 @@ class gpu_uniform_scan(uniform_scan):
 
         self.db.attrs["max_turns"] = max_turns
 
-        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
+        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns, kind=modulation_kind)
         d_omega_x = cuda.to_device(omega_x)
         d_omega_y = cuda.to_device(omega_y)
 
@@ -534,7 +551,7 @@ class gpu_uniform_scan(uniform_scan):
             d_times.copy_to_host(t_f)
             self.times[i] = t_f.reshape(x.shape)
     
-    def scan_octo(self, max_turns, mu):
+    def scan_octo(self, max_turns, mu, modulation_kind="sps"):
         """Execute a scanning of everything
 
         Parameters
@@ -556,7 +573,7 @@ class gpu_uniform_scan(uniform_scan):
         self.db.attrs["max_turns"] = max_turns
         self.db.attrs["mu"] = mu
 
-        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
+        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns, kind=modulation_kind)
         omega_x_sin = np.sin(omega_x)
         omega_x_cos = np.cos(omega_x)
         omega_y_sin = np.sin(omega_y)
@@ -666,10 +683,10 @@ class cpu_radial_block(radial_block):
         self.times = self.db.create_dataset(
             "/data/times", (radial_samples, len(alpha), len(theta1), len(theta2)), dtype=np.int32, compression="lzf")
     
-    def scan(self, max_turns):
+    def scan(self, max_turns, modulation_kind="sps"):
         self.db.attrs["max_turns"] = max_turns
 
-        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
+        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns, kind=modulation_kind)
 
         aa, th1, th2 = np.meshgrid(
             self.alpha, self.theta1, self.theta2, indexing='ij'
@@ -685,11 +702,11 @@ class cpu_radial_block(radial_block):
                     x, px, y, py, 10.0, max_turns, omega_x, omega_y, self.bool_mask[i]
                 )
     
-    def scan_octo(self, max_turns, mu):
+    def scan_octo(self, max_turns, mu, modulation_kind="sps"):
         self.db.attrs["max_turns"] = max_turns
         self.db.attrs["mu"] = mu
 
-        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
+        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns, kind=modulation_kind)
 
         aa, th1, th2 = np.meshgrid(
             self.alpha, self.theta1, self.theta2, indexing='ij'
@@ -740,13 +757,13 @@ class gpu_radial_block(radial_block):
         self.times = self.db.create_dataset(
             "/data/times", (radial_samples, len(alpha), len(theta1), len(theta2)), dtype=np.int32, compression="lzf")
 
-    def scan(self, max_turns):
+    def scan(self, max_turns, modulation_kind="sps"):
         threads_per_block = 512
         blocks_per_grid = 10
 
         self.db.attrs["max_turns"] = max_turns
 
-        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
+        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns, kind=modulation_kind)
         d_omega_x = cuda.to_device(omega_x)
         d_omega_y = cuda.to_device(omega_y)
 
@@ -776,14 +793,14 @@ class gpu_radial_block(radial_block):
                 d_times.copy_to_host(t_f)
                 self.times[i] = t_f.reshape(x.shape)
     
-    def scan_octo(self, max_turns, mu):
+    def scan_octo(self, max_turns, mu, modulation_kind="sps"):
         threads_per_block = 512
         blocks_per_grid = 10
 
         self.db.attrs["max_turns"] = max_turns
         self.db.attrs["mu"] = mu
 
-        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns)
+        omega_x, omega_y = modulation(self.db.attrs["epsilon"], max_turns, kind=modulation_kind)
         omega_x_sin = np.sin(omega_x)
         omega_x_cos = np.cos(omega_x)
         omega_y_sin = np.sin(omega_y)
@@ -1121,6 +1138,79 @@ class uniform_radial_scanner(object):
                     self.alpha
                 )
         return integrate.trapz(prelim_values * np.power(self.r_list, 3), self.r_list)
+
+    def compute_inversion_error(self, n_steps):
+        try:
+            if self.db.attrs["mu"] != 0.0:
+                raise NotImplementedError
+        except:
+            pass
+        x, px, y, py = polar_to_cartesian(*np.meshgrid(
+            self.r_list, self.alpha, self.theta1, self.theta2, indexing='ij'))
+        x = x.flatten()
+        px = px.flatten()
+        y = y.flatten()
+        py = py.flatten()
+        engine = partial_track.generate_instance(x, px, y, py)
+        engine.compute(n_steps, self.db.attrs["epsilon"])
+        n_x, n_px, n_y, n_py, _ = engine.inverse_compute(
+            n_steps, self.db.attrs["epsilon"])
+        return (np.sqrt(np.power(x - n_x, 2) + np.power(px - n_px, 2) 
+            + np.power(y - n_y, 2) + np.power(py - n_py, 2))).reshape((self.r_list.size, self.alpha.size, self.theta1.size, self.theta2.size))
+
+    def compute_basic_lyapunov(self, n_steps, kick=1e-13):
+        x, px, y, py = polar_to_cartesian(*np.meshgrid(
+            self.r_list, self.alpha, self.theta1, self.theta2, indexing='ij'))
+        x = x.flatten()
+        px = px.flatten()
+        y = y.flatten()
+        py = py.flatten()
+        alpha = np.random.rand(x.size) * np.pi / 2
+        th1 = np.random.rand(x.size) * np.pi * 2
+        th2 = np.random.rand(x.size) * np.pi * 2
+        engine = partial_track.generate_instance(x, px, y, py)
+        x_f, px_f, y_f, py_f, _ = engine.compute(n_steps, self.db.attrs["epsilon"])
+        x += kick * np.cos(alpha) * np.cos(th1)
+        px += kick * np.cos(alpha) * np.sin(th1)
+        y += kick * np.sin(alpha) * np.cos(th2)
+        py += kick * np.sin(alpha) * np.sin(th2)
+        engine = partial_track.generate_instance(x, px, y, py)
+        x_fk, px_fk, y_fk, py_fk, _ = engine.compute(
+            n_steps, self.db.attrs["epsilon"])
+        return (np.sqrt(np.power(x_f - x_fk, 2) + np.power(px_f - px_fk, 2) + np.power(y_f - y_fk, 2) + np.power(py_f - py_fk, 2)) / kick).reshape((self.r_list.size, self.alpha.size, self.theta1.size, self.theta2.size))
+
+    def compute_multiple_lyapunov(self, n_steps, kick=1e-13):
+        x, px, y, py = polar_to_cartesian(*np.meshgrid(
+            self.r_list, self.alpha, self.theta1, self.theta2, indexing='ij'))
+        x = x.flatten()
+        px = px.flatten()
+        y = y.flatten()
+        py = py.flatten()
+        engine = partial_track.generate_instance(x, px, y, py)
+        x_f, px_f, y_f, py_f, _ = engine.compute(n_steps, self.db.attrs["epsilon"])
+        # l_x
+        engine = partial_track.generate_instance(x + kick, px, y, py)
+        x_fk, px_fk, y_fk, py_fk, _ = engine.compute(
+            n_steps, self.db.attrs["epsilon"])
+        l_x = np.sqrt(np.power(x_f - x_fk, 2) + np.power(px_f - px_fk, 2) + np.power(y_f - y_fk, 2) + np.power(py_f - py_fk, 2)) / kick
+        # l_px
+        engine = partial_track.generate_instance(x, px + kick, y, py)
+        x_fk, px_fk, y_fk, py_fk, _ = engine.compute(
+            n_steps, self.db.attrs["epsilon"])
+        l_px = np.sqrt(np.power(x_f - x_fk, 2) + np.power(px_f - px_fk, 2) + np.power(y_f - y_fk, 2) + np.power(py_f - py_fk, 2)) / kick
+        # l_y
+        engine = partial_track.generate_instance(x, px, y + kick, py)
+        x_fk, px_fk, y_fk, py_fk, _ = engine.compute(
+            n_steps, self.db.attrs["epsilon"])
+        l_y = np.sqrt(np.power(x_f - x_fk, 2) + np.power(px_f - px_fk, 2) + np.power(y_f - y_fk, 2) + np.power(py_f - py_fk, 2)) / kick
+        # l_py
+        engine = partial_track.generate_instance(x, px, y, py + kick)
+        x_fk, px_fk, y_fk, py_fk, _ = engine.compute(
+            n_steps, self.db.attrs["epsilon"])
+        l_py = np.sqrt(np.power(x_f - x_fk, 2) + np.power(px_f - px_fk, 2) + np.power(y_f - y_fk, 2) + np.power(py_f - py_fk, 2)) / kick
+        return ((l_x + l_px + l_y + l_py) / 4).reshape((self.r_list.size, self.alpha.size, self.theta1.size, self.theta2.size))
+
+
 
 
 def assign_symmetric_gaussian(sigma=1.0, polar=True):
