@@ -154,7 +154,7 @@ class cpu_partial_track(partial_track):
 
         self.limit = limit
 
-    def compute(self, n_iterations, epsilon, mu=0.0, modulation_kind="sps"):
+    def compute(self, n_iterations, epsilon, mu=0.0, modulation_kind="sps", full_track=False):
         """Compute the tracking
         
         Returns
@@ -170,18 +170,40 @@ class cpu_partial_track(partial_track):
         omega_y_cos = np.cos(omega_y)
         omega_y_sin = np.sin(omega_y)
 
-        # Execution
-        if mu == 0.0:
-            self.x, self.px, self.y, self.py, self.step = cpu.henon_partial_track(
-                self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos
-            )
-        else:
-            self.x, self.px, self.y, self.py, self.step = cpu.octo_henon_partial_track(
-                self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos, mu
-            )
+        if not full_track:
+            # Execution
+            if mu == 0.0:
+                self.x, self.px, self.y, self.py, self.step = cpu.henon_partial_track(
+                    self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos
+                )
+            else:
+                self.x, self.px, self.y, self.py, self.step = cpu.octo_henon_partial_track(
+                    self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos, mu
+                )
 
-        self.total_iters += n_iterations
-        return self.x, self.px, self.y, self.py, self.step
+            self.total_iters += n_iterations
+            return self.x, self.px, self.y, self.py, self.step
+        else:
+            data_x = np.ones((n_iterations, self.x.size))
+            data_px = np.ones((n_iterations, self.x.size))
+            data_y = np.ones((n_iterations, self.x.size))
+            data_py = np.ones((n_iterations, self.x.size))
+            for i in range(n_iterations):
+                # Execution
+                if mu == 0.0:
+                    self.x, self.px, self.y, self.py, self.step = cpu.henon_partial_track(
+                        self.x, self.px, self.y, self.py, self.step, self.limit, 1, omega_x_sin[i:i+1], omega_x_cos[i:i+1], omega_y_sin[i:i+1], omega_y_cos[i:i+1]
+                    )
+                else:
+                    self.x, self.px, self.y, self.py, self.step = cpu.octo_henon_partial_track(
+                        self.x, self.px, self.y, self.py, self.step, self.limit, 1, omega_x_sin[i:i+1], omega_x_cos[i:i+1], omega_y_sin[i:i+1], omega_y_cos[i:i+1], mu
+                    )
+                data_x[i] = self.x
+                data_px[i] = self.px
+                data_y[i] = self.y
+                data_py[i] = self.py
+            self.total_iters += n_iterations
+            return data_x, data_px, data_y, data_py
 
     def inverse_compute(self, n_iterations, epsilon, modulation_kind="sps"):
         omega_x, omega_y = modulation(
@@ -215,6 +237,17 @@ class cpu_partial_track(partial_track):
     
     def get_zero_data(self):
         return self.x0, self.px0, self.y0, self.py0
+    
+    def add_kick(self, x=None, px=None, y=None, py=None):
+        # Add kick
+        if x is not None:
+            self.x += x
+        if px is not None:
+            self.px += px
+        if y is not None:
+            self.y += y
+        if py is not None:
+            self.py += py
 
 
 class gpu_partial_track(partial_track):
@@ -244,7 +277,7 @@ class gpu_partial_track(partial_track):
 
         self.limit = limit
 
-    def compute(self, n_iterations, epsilon, mu=0.0, modulation_kind="sps"):
+    def compute(self, n_iterations, epsilon, mu=0.0, modulation_kind="sps", full_track=False):
         """Compute the tracking
         
         Returns
@@ -264,25 +297,48 @@ class gpu_partial_track(partial_track):
         d_omega_y_cos = cuda.to_device(np.cos(omega_y))
 
         # Execution
-        if mu == 0.0:
-            gpu.henon_partial_track[blocks_per_grid, threads_per_block](
-                self.d_x, self.d_px, self.d_y, self.d_py, self.d_step, self.limit,
-                n_iterations, d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos
-            )
-        else:
-            gpu.octo_henon_partial_track[blocks_per_grid, threads_per_block](
-                self.d_x, self.d_px, self.d_y, self.d_py, self.d_step, self.limit,
-                n_iterations, d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos, mu
-            )
-        self.total_iters += n_iterations
+        if not full_track:
+            if mu == 0.0:
+                gpu.henon_partial_track[blocks_per_grid, threads_per_block](
+                    self.d_x, self.d_px, self.d_y, self.d_py, self.d_step, self.limit,
+                    n_iterations, d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos
+                )
+            else:
+                gpu.octo_henon_partial_track[blocks_per_grid, threads_per_block](
+                    self.d_x, self.d_px, self.d_y, self.d_py, self.d_step, self.limit,
+                    n_iterations, d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos, mu
+                )
+            self.total_iters += n_iterations
 
-        self.d_x.copy_to_host(self.x)
-        self.d_y.copy_to_host(self.y)
-        self.d_px.copy_to_host(self.px)
-        self.d_py.copy_to_host(self.py)
-        self.d_step.copy_to_host(self.step)
-        
-        return self.x, self.px, self.y, self.py, self.step
+            self.d_x.copy_to_host(self.x)
+            self.d_y.copy_to_host(self.y)
+            self.d_px.copy_to_host(self.px)
+            self.d_py.copy_to_host(self.py)
+            self.d_step.copy_to_host(self.step)
+            
+            return self.x, self.px, self.y, self.py, self.step
+        else:
+            data_x = np.ones((n_iterations, self.x.size))
+            data_px = np.ones((n_iterations, self.x.size))
+            data_y = np.ones((n_iterations, self.x.size))
+            data_py = np.ones((n_iterations, self.x.size))
+            for i in range(n_iterations):
+                if mu == 0.0:
+                    gpu.henon_partial_track[blocks_per_grid, threads_per_block](
+                        self.d_x, self.d_px, self.d_y, self.d_py, self.d_step, self.limit,
+                        1, d_omega_x_sin[i:i+1], d_omega_x_cos[i:i+1], d_omega_y_sin[i:i+1], d_omega_y_cos[i:i+1]
+                    )
+                else:
+                    gpu.octo_henon_partial_track[blocks_per_grid, threads_per_block](
+                        self.d_x, self.d_px, self.d_y, self.d_py, self.d_step, self.limit,
+                        1, d_omega_x_sin[i:i+1], d_omega_x_cos[i:i+1], d_omega_y_sin[i:i+1], d_omega_y_cos[i:i+1], mu
+                    )
+                self.d_x.copy_to_host(data_x[i])
+                self.d_y.copy_to_host(data_y[i])
+                self.d_px.copy_to_host(data_px[i])
+                self.d_py.copy_to_host(data_py[i])
+            self.total_iters += n_iterations
+            return data_x, data_px, data_y, data_py
         
     def inverse_compute(self, n_iterations, epsilon, modulation_kind="sps"):
         threads_per_block = 512
@@ -332,6 +388,22 @@ class gpu_partial_track(partial_track):
 
     def get_zero_data(self):
         return self.x0, self.px0, self.y0, self.py0
+
+    def add_kick(self, x=None, px=None, y=None, py=None):
+        # Add kick
+        if x is not None:
+            self.x += x
+        if px is not None:
+            self.px += px
+        if y is not None:
+            self.y += y
+        if py is not None:
+            self.py += py
+        # Update GPU
+        self.d_x = cuda.to_device(self.x)
+        self.d_px = cuda.to_device(self.px)
+        self.d_y = cuda.to_device(self.y)
+        self.d_py = cuda.to_device(self.py)
 
 
 class uniform_scan(object):
