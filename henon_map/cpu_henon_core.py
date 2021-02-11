@@ -278,7 +278,7 @@ def henon_inverse_partial_track(x, px, y, py, steps, limit, max_iterations, sin_
                 x[j], px[j], sin_omega_x[k], cos_omega_x[k], inverse=True)
             y[j], py[j] = premade_rotation(
                 y[j], py[j], sin_omega_y[k], cos_omega_y[k], inverse=True)
-            
+
             px[j] = px[j] - (x[j] * x[j] - y[j] * y[j])
             py[j] = py[j] + 2 * x[j] * y[j]
 
@@ -297,22 +297,149 @@ def octo_henon_partial_track(x, px, y, py, steps, limit, max_iterations, sin_ome
     for j in prange(len(x)):
         for k in range(max_iterations):
             temp1 = (
-                px[j] 
-                + x[j] * x[j] 
-                - y[j] * y[j] 
+                px[j]
+                + x[j] * x[j]
+                - y[j] * y[j]
                 + mu * (
-                    x[j] * x[j] * x[j] 
+                    x[j] * x[j] * x[j]
                     - 3 * x[j] * y[j] * y[j]))
             temp2 = (
-                py[j] 
-                - 2 * x[j] * y[j] 
+                py[j]
+                - 2 * x[j] * y[j]
                 + mu * (
-                    3 * x[j] * x[j] * y[j] 
+                    3 * x[j] * x[j] * y[j]
                     - y[j] * y[j] * y[j]))
             x[j], px[j] = premade_rotation(
                 x[j], temp1, sin_omega_x[k], cos_omega_x[k], inverse=False)
             y[j], py[j] = premade_rotation(
                 y[j], temp2, sin_omega_y[k], cos_omega_y[k], inverse=False)
+            if((np.isnan(x[j]) or np.isnan(px[j]) or np.isnan(y[j]) or np.isnan(py[j])) or check_boundary(x[j], px[j], y[j], py[j], limit)):
+                x[j] = np.nan
+                px[j] = np.nan
+                y[j] = np.nan
+                py[j] = np.nan
+                break
+            steps[j] += 1
+    return x, px, y, py, steps
+
+
+@njit(parallel=True)
+def henon_partial_track_with_kick(x, px, y, py, steps, limit, max_iterations, sin_omega_x, cos_omega_x, sin_omega_y, cos_omega_y, kick_module, kick_sigma):
+    for j in prange(len(x)):
+        for k in range(max_iterations):
+            temp1 = (px[j] + x[j] * x[j] - y[j] * y[j])
+            temp2 = (py[j] - 2 * x[j] * y[j])
+
+            x[j], px[j] = premade_rotation(
+                x[j], temp1, sin_omega_x[k], cos_omega_x[k], inverse=False)
+            y[j], py[j] = premade_rotation(
+                y[j], temp2, sin_omega_y[k], cos_omega_y[k], inverse=False)
+
+            t1 = np.random.uniform(-1, 1)
+            t2 = np.random.uniform(-1, 1)
+            t3 = np.random.uniform(-1, 1)
+            t4 = np.random.uniform(-1, 1)
+            while t1 ** 2 + t2 ** 2 >= 1:
+                t1 = np.random.uniform(-1, 1)
+                t2 = np.random.uniform(-1, 1)
+            while t3 ** 2 + t4 ** 2 >= 1:
+                t3 = np.random.uniform(-1, 1)
+                t4 = np.random.uniform(-1, 1)
+            kick = np.random.normal(kick_module, kick_sigma)
+            t = (1 - t1 ** 2 - t2 ** 2) / (t3 ** 2 + t4 ** 2)
+            x[j] += kick * t1
+            px[j] += kick * t2
+            y[j] += kick * t3 * t
+            py[j] += kick * t4 * t
+
+            if((np.isnan(x[j]) or np.isnan(px[j]) or np.isnan(y[j]) or np.isnan(py[j])) or check_boundary(x[j], px[j], y[j], py[j], limit)):
+                x[j] = np.nan
+                px[j] = np.nan
+                y[j] = np.nan
+                py[j] = np.nan
+                break
+            steps[j] += 1
+    return x, px, y, py, steps
+
+
+@njit(parallel=True)
+def henon_inverse_partial_track_with_kick(x, px, y, py, steps, limit, max_iterations, sin_omega_x, cos_omega_x, sin_omega_y, cos_omega_y, kick_module, kick_sigma):
+    for j in prange(len(x)):
+        for k in range(max_iterations):
+            x[j], px[j] = premade_rotation(
+                x[j], px[j], sin_omega_x[k], cos_omega_x[k], inverse=True)
+            y[j], py[j] = premade_rotation(
+                y[j], py[j], sin_omega_y[k], cos_omega_y[k], inverse=True)
+
+            px[j] = px[j] - (x[j] * x[j] - y[j] * y[j])
+            py[j] = py[j] + 2 * x[j] * y[j]
+
+            t1 = np.random.uniform(-1, 1)
+            t2 = np.random.uniform(-1, 1)
+            t3 = np.random.uniform(-1, 1)
+            t4 = np.random.uniform(-1, 1)
+            while t1 ** 2 + t2 ** 2 >= 1:
+                t1 = np.random.uniform(-1, 1)
+                t2 = np.random.uniform(-1, 1)
+            while t3 ** 2 + t4 ** 2 >= 1:
+                t3 = np.random.uniform(-1, 1)
+                t4 = np.random.uniform(-1, 1)
+            kick = np.random.normal(kick_module, kick_sigma)
+            t = (1 - t1 ** 2 - t2 ** 2) / (t3 ** 2 + t4 ** 2)
+            x[j] += kick * t1
+            px[j] += kick * t2
+            y[j] += kick * t3 * t
+            py[j] += kick * t4 * t
+
+            if((np.isnan(x[j]) or np.isnan(px[j]) or np.isnan(y[j]) or np.isnan(py[j])) or check_boundary(x[j], px[j], y[j], py[j], limit)):
+                x[j] = np.nan
+                px[j] = np.nan
+                y[j] = np.nan
+                py[j] = np.nan
+                break
+            steps[j] -= 1
+    return x, px, y, py, steps
+
+
+@njit(parallel=True)
+def octo_henon_partial_track_with_kick(x, px, y, py, steps, limit, max_iterations, sin_omega_x, cos_omega_x, sin_omega_y, cos_omega_y, mu, kick_module, kick_sigma):
+    for j in prange(len(x)):
+        for k in range(max_iterations):
+            temp1 = (
+                px[j]
+                + x[j] * x[j]
+                - y[j] * y[j]
+                + mu * (
+                    x[j] * x[j] * x[j]
+                    - 3 * x[j] * y[j] * y[j]))
+            temp2 = (
+                py[j]
+                - 2 * x[j] * y[j]
+                + mu * (
+                    3 * x[j] * x[j] * y[j]
+                    - y[j] * y[j] * y[j]))
+            x[j], px[j] = premade_rotation(
+                x[j], temp1, sin_omega_x[k], cos_omega_x[k], inverse=False)
+            y[j], py[j] = premade_rotation(
+                y[j], temp2, sin_omega_y[k], cos_omega_y[k], inverse=False)
+
+            t1 = np.random.uniform(-1, 1)
+            t2 = np.random.uniform(-1, 1)
+            t3 = np.random.uniform(-1, 1)
+            t4 = np.random.uniform(-1, 1)
+            while t1 ** 2 + t2 ** 2 >= 1:
+                t1 = np.random.uniform(-1, 1)
+                t2 = np.random.uniform(-1, 1)
+            while t3 ** 2 + t4 ** 2 >= 1:
+                t3 = np.random.uniform(-1, 1)
+                t4 = np.random.uniform(-1, 1)
+            kick = np.random.normal(kick_module, kick_sigma)
+            t = (1 - t1 ** 2 - t2 ** 2) / (t3 ** 2 + t4 ** 2)
+            x[j] += kick * t1
+            px[j] += kick * t2
+            y[j] += kick * t3 * t
+            py[j] += kick * t4 * t
+
             if((np.isnan(x[j]) or np.isnan(px[j]) or np.isnan(y[j]) or np.isnan(py[j])) or check_boundary(x[j], px[j], y[j], py[j], limit)):
                 x[j] = np.nan
                 px[j] = np.nan

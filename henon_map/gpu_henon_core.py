@@ -2,6 +2,7 @@ import math
 from numba import cuda
 import numpy as np
 import numba
+from numba.cuda.random import xoroshiro128p_uniform_float64, xoroshiro128p_normal_float64
 
 
 @cuda.jit(device=True)
@@ -343,6 +344,70 @@ def henon_partial_track(g_x, g_px, g_y, g_py, g_steps, limit, max_iterations, om
 
 
 @cuda.jit
+def henon_partial_track_with_kick(g_x, g_px, g_y, g_py, g_steps, limit, max_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos, rng_states, kick_module, kick_sigma):
+    i = cuda.threadIdx.x
+    j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
+
+    x = cuda.shared.array(shape=(512), dtype=numba.float64)
+    y = cuda.shared.array(shape=(512), dtype=numba.float64)
+    px = cuda.shared.array(shape=(512), dtype=numba.float64)
+    py = cuda.shared.array(shape=(512), dtype=numba.float64)
+    temp1 = cuda.shared.array(shape=(512), dtype=numba.float64)
+    temp2 = cuda.shared.array(shape=(512), dtype=numba.float64)
+    steps = cuda.shared.array(shape=(512), dtype=numba.int32)
+
+    if(j < g_x.shape[0]):
+        x[i] = g_x[j]
+        y[i] = g_y[j]
+        px[i] = g_px[j]
+        py[i] = g_py[j]
+        steps[i] = g_steps[j]
+
+        for k in range(max_iterations):
+            temp1[i] = (px[i] + x[i] * x[i] - y[i] * y[i])
+            temp2[i] = (py[i] - 2 * x[i] * y[i])
+
+            x[i], px[i] = premade_rotation(
+                x[i], temp1[i], omega_x_sin[k], omega_x_cos[k], False)
+            y[i], py[i] = premade_rotation(
+                y[i], temp2[i], omega_y_sin[k], omega_y_cos[k], False)
+
+            # 4d sphere sampling
+            t1 = xoroshiro128p_uniform_float64(rng_states, j) * 2 - 1
+            t2 = (xoroshiro128p_uniform_float64(
+                rng_states, j) * 2 - 1) * math.sqrt(1 - t1)
+            t3 = xoroshiro128p_uniform_float64(rng_states, j) * 2 - 1
+            t4 = (xoroshiro128p_uniform_float64(
+                rng_states, j) * 2 - 1) * math.sqrt(1 - t3)
+
+            # kick module computing
+            if kick_sigma == 0:
+                kick = kick_module
+            else:
+                kick = xoroshiro128p_normal_float64(rng_states, j) * kick_sigma + kick_module
+            # application
+            t = (1 - t1 ** 2 - t2 ** 2) / (t3 ** 2 + t4 ** 2)
+            x[i] += kick * t1
+            px[i] += kick * t2
+            y[i] += kick * t3 * t
+            py[i] += kick * t4 * t
+
+            if(check_boundary(x[i], px[i], y[i], py[i], limit) or (math.isnan(x[i]) or math.isnan(px[i]) or math.isnan(y[i]) or math.isnan(py[i]))):
+                x[i] = math.nan
+                px[i] = math.nan
+                y[i] = math.nan
+                py[i] = math.nan
+                break
+            steps[i] += 1
+
+        g_x[j] = x[i]
+        g_y[j] = y[i]
+        g_px[j] = px[i]
+        g_py[j] = py[i]
+        g_steps[j] = steps[i]
+
+
+@cuda.jit
 def henon_inverse_partial_track(g_x, g_px, g_y, g_py, g_steps, limit, max_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos):
     i = cuda.threadIdx.x
     j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
@@ -385,6 +450,69 @@ def henon_inverse_partial_track(g_x, g_px, g_y, g_py, g_steps, limit, max_iterat
 
 
 @cuda.jit
+def henon_inverse_partial_track_with_kick(g_x, g_px, g_y, g_py, g_steps, limit, max_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos, rng_states, kick_module, kick_sigma):
+    i = cuda.threadIdx.x
+    j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
+
+    x = cuda.shared.array(shape=(512), dtype=numba.float64)
+    y = cuda.shared.array(shape=(512), dtype=numba.float64)
+    px = cuda.shared.array(shape=(512), dtype=numba.float64)
+    py = cuda.shared.array(shape=(512), dtype=numba.float64)
+    steps = cuda.shared.array(shape=(512), dtype=numba.int32)
+
+    if(j < g_x.shape[0]):
+        x[i] = g_x[j]
+        y[i] = g_y[j]
+        px[i] = g_px[j]
+        py[i] = g_py[j]
+        steps[i] = g_steps[j]
+
+        for k in range(max_iterations):
+            x[i], px[i] = premade_rotation(
+                x[i], px[i], omega_x_sin[k], omega_x_cos[k], True)
+            y[i], py[i] = premade_rotation(
+                y[i], py[i], omega_y_sin[k], omega_y_cos[k], True)
+
+            px[i] = px[i] - (x[i] * x[i] - y[i] * y[i])
+            py[i] = py[i] + 2 * x[i] * y[i]
+
+            # 4d sphere sampling
+            t1 = xoroshiro128p_uniform_float64(rng_states, j) * 2 - 1
+            t2 = (xoroshiro128p_uniform_float64(
+                rng_states, j) * 2 - 1) * math.sqrt(1 - t1)
+            t3 = xoroshiro128p_uniform_float64(rng_states, j) * 2 - 1
+            t4 = (xoroshiro128p_uniform_float64(
+                rng_states, j) * 2 - 1) * math.sqrt(1 - t3)
+
+            # kick module computing
+            if kick_sigma == 0:
+                kick = kick_module
+            else:
+                kick = xoroshiro128p_normal_float64(
+                    rng_states, j) * kick_sigma + kick_module
+            # application
+            t = (1 - t1 ** 2 - t2 ** 2) / (t3 ** 2 + t4 ** 2)
+            x[i] += kick * t1
+            px[i] += kick * t2
+            y[i] += kick * t3 * t
+            py[i] += kick * t4 * t
+
+            if(check_boundary(x[i], px[i], y[i], py[i], limit) or (math.isnan(x[i]) or math.isnan(px[i]) or math.isnan(y[i]) or math.isnan(py[i]))):
+                x[i] = math.nan
+                px[i] = math.nan
+                y[i] = math.nan
+                py[i] = math.nan
+                break
+            steps[i] -= 1
+
+        g_x[j] = x[i]
+        g_y[j] = y[i]
+        g_px[j] = px[i]
+        g_py[j] = py[i]
+        g_steps[j] = steps[i]
+
+
+@cuda.jit
 def octo_henon_partial_track(g_x, g_px, g_y, g_py, g_steps, limit, max_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos, mu):
     i = cuda.threadIdx.x
     j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
@@ -407,7 +535,7 @@ def octo_henon_partial_track(g_x, g_px, g_y, g_py, g_steps, limit, max_iteration
         px[i] = g_px[j]
         py[i] = g_py[j]
         steps[i] = g_steps[j]
-        
+
         x2[i] = x[i] * x[i]
         y2[i] = y[i] * y[i]
 
@@ -421,6 +549,82 @@ def octo_henon_partial_track(g_x, g_px, g_y, g_py, g_steps, limit, max_iteration
                 x[i], temp1[i], omega_x_sin[k], omega_x_cos[k], False)
             y[i], py[i] = premade_rotation(
                 y[i], temp2[i], omega_y_sin[k], omega_y_cos[k], False)
+
+            if(check_boundary(x[i], px[i], y[i], py[i], limit) or (math.isnan(x[i]) or math.isnan(px[i]) or math.isnan(y[i]) or math.isnan(py[i]))):
+                x[i] = math.nan
+                px[i] = math.nan
+                y[i] = math.nan
+                py[i] = math.nan
+                break
+            steps[i] += 1
+            x2[i] = x[i] * x[i]
+            y2[i] = y[i] * y[i]
+
+        g_x[j] = x[i]
+        g_y[j] = y[i]
+        g_px[j] = px[i]
+        g_py[j] = py[i]
+        g_steps[j] = steps[i]
+
+
+@cuda.jit
+def octo_henon_partial_track_with_kick(g_x, g_px, g_y, g_py, g_steps, limit, max_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos, mu, rng_states, kick_module, kick_sigma):
+    i = cuda.threadIdx.x
+    j = cuda.threadIdx.x + cuda.blockIdx.x * cuda.blockDim.x
+
+    x = cuda.shared.array(shape=(512), dtype=numba.float64)
+    y = cuda.shared.array(shape=(512), dtype=numba.float64)
+    px = cuda.shared.array(shape=(512), dtype=numba.float64)
+    py = cuda.shared.array(shape=(512), dtype=numba.float64)
+
+    x2 = cuda.shared.array(shape=(512), dtype=numba.float64)
+    y2 = cuda.shared.array(shape=(512), dtype=numba.float64)
+
+    temp1 = cuda.shared.array(shape=(512), dtype=numba.float64)
+    temp2 = cuda.shared.array(shape=(512), dtype=numba.float64)
+    steps = cuda.shared.array(shape=(512), dtype=numba.int32)
+
+    if(j < g_x.shape[0]):
+        x[i] = g_x[j]
+        y[i] = g_y[j]
+        px[i] = g_px[j]
+        py[i] = g_py[j]
+        steps[i] = g_steps[j]
+
+        x2[i] = x[i] * x[i]
+        y2[i] = y[i] * y[i]
+
+        for k in range(max_iterations):
+            temp1[i] = (px[i] + x2[i] - y2[i] + mu *
+                        (x2[i] * x[i] - 3 * x[i] * y2[i]))
+            temp2[i] = (py[i] - 2 * x[i] * y[i] + mu *
+                        (3 * x2[i] * y[i] - y2[i] * y[i]))
+
+            x[i], px[i] = premade_rotation(
+                x[i], temp1[i], omega_x_sin[k], omega_x_cos[k], False)
+            y[i], py[i] = premade_rotation(
+                y[i], temp2[i], omega_y_sin[k], omega_y_cos[k], False)
+
+            # 4d sphere sampling
+            t1 = xoroshiro128p_uniform_float64(rng_states, j) * 2 - 1
+            t2 = (xoroshiro128p_uniform_float64(
+                rng_states, j) * 2 - 1) * math.sqrt(1 - t1)
+            t3 = xoroshiro128p_uniform_float64(rng_states, j) * 2 - 1
+            t4 = (xoroshiro128p_uniform_float64(
+                rng_states, j) * 2 - 1) * math.sqrt(1 - t3)
+                
+            # kick module computing
+            if kick_sigma == 0:
+                kick = kick_module
+            else:
+                kick = xoroshiro128p_normal_float64(
+                    rng_states, j) * kick_sigma + kick_module
+            # application
+            t = (1 - t1 ** 2 - t2 ** 2) / (t3 ** 2 + t4 ** 2)
+            x[i] += kick * t1
+            px[i] += kick * t2
+            y[i] += kick * t3 * t
+            py[i] += kick * t4 * t
 
             if(check_boundary(x[i], px[i], y[i], py[i], limit) or (math.isnan(x[i]) or math.isnan(px[i]) or math.isnan(y[i]) or math.isnan(py[i]))):
                 x[i] = math.nan
