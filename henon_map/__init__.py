@@ -252,7 +252,7 @@ class cpu_partial_track(partial_track):
             self.total_iters += n_iterations
             return data_x, data_px, data_y, data_py
 
-    def inverse_compute(self, n_iterations, epsilon, modulation_kind="sps"):
+    def inverse_compute(self, n_iterations, epsilon, mu=0.0, modulation_kind="sps"):
         omega_x, omega_y = modulation(
             epsilon, n_iterations, self.total_iters, reversed=True, kind=modulation_kind)
 
@@ -262,14 +262,19 @@ class cpu_partial_track(partial_track):
         omega_y_sin = np.sin(omega_y)
 
         # Execution
-        self.x, self.px, self.y, self.py, self.step = cpu.henon_inverse_partial_track(
-            self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos
-        )
+        if mu == 0.0:
+            self.x, self.px, self.y, self.py, self.step = cpu.henon_inverse_partial_track(
+                self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos
+            )
+        else:
+            self.x, self.px, self.y, self.py, self.step = cpu.octo_henon_inverse_partial_track(
+                self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos, mu
+            )
 
         self.total_iters -= n_iterations
         return self.x, self.px, self.y, self.py, self.step
 
-    def inverse_compute_with_kick(self, n_iterations, epsilon, kick_module=1e-14, kick_sigma=1e-15, modulation_kind="sps"):
+    def inverse_compute_with_kick(self, n_iterations, epsilon, mu=0.0, kick_module=1e-14, kick_sigma=1e-15, modulation_kind="sps"):
         omega_x, omega_y = modulation(
             epsilon, n_iterations, self.total_iters, reversed=True, kind=modulation_kind)
 
@@ -279,9 +284,14 @@ class cpu_partial_track(partial_track):
         omega_y_sin = np.sin(omega_y)
 
         # Execution
-        self.x, self.px, self.y, self.py, self.step = cpu.henon_inverse_partial_track_with_kick(
-            self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos, kick_module, kick_sigma
-        )
+        if mu == 0.0:
+            self.x, self.px, self.y, self.py, self.step = cpu.henon_inverse_partial_track_with_kick(
+                self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos, kick_module, kick_sigma
+            )
+        else:
+            self.x, self.px, self.y, self.py, self.step = cpu.octo_henon_inverse_partial_track_with_kick(
+                self.x, self.px, self.y, self.py, self.step, self.limit, n_iterations, omega_x_sin, omega_x_cos, omega_y_sin, omega_y_cos, mu, kick_module, kick_sigma
+            )
 
         self.total_iters -= n_iterations
         return self.x, self.px, self.y, self.py, self.step
@@ -468,7 +478,7 @@ class gpu_partial_track(partial_track):
             self.total_iters += n_iterations
             return data_x, data_px, data_y, data_py
 
-    def inverse_compute(self, n_iterations, epsilon, modulation_kind="sps"):
+    def inverse_compute(self, n_iterations, epsilon, mu=0.0, modulation_kind="sps"):
         threads_per_block = 512
         blocks_per_grid = self.x0.size // 512 + 1
 
@@ -480,10 +490,16 @@ class gpu_partial_track(partial_track):
         d_omega_y_cos = cuda.to_device(np.cos(omega_y))
         d_omega_y_sin = cuda.to_device(np.sin(omega_y))
 
-        gpu.henon_inverse_partial_track[blocks_per_grid, threads_per_block](
-            self.d_x, self.d_px, self.d_y, self.d_py, self.d_step, self.limit,
-            n_iterations, d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos
-        )
+        if mu==0.0:
+            gpu.henon_inverse_partial_track[blocks_per_grid, threads_per_block](
+                self.d_x, self.d_px, self.d_y, self.d_py, self.d_step, self.limit,
+                n_iterations, d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos
+            )
+        else:
+            gpu.octo_henon_inverse_partial_track[blocks_per_grid, threads_per_block](
+                self.d_x, self.d_px, self.d_y, self.d_py, self.d_step, self.limit,
+                n_iterations, d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos, mu
+            )
         self.total_iters -= n_iterations
 
         self.d_x.copy_to_host(self.x)
@@ -494,7 +510,7 @@ class gpu_partial_track(partial_track):
 
         return self.x, self.px, self.y, self.py, self.step
 
-    def inverse_compute_with_kick(self, n_iterations, epsilon, kick_module=1e-14, kick_sigma=1e-15, modulation_kind="sps"):
+    def inverse_compute_with_kick(self, n_iterations, epsilon, mu=0.0, kick_module=1e-14, kick_sigma=1e-15, modulation_kind="sps"):
         threads_per_block = 512
         blocks_per_grid = self.x0.size // 512 + 1
         rng_states = create_xoroshiro128p_states(
@@ -508,10 +524,16 @@ class gpu_partial_track(partial_track):
         d_omega_y_cos = cuda.to_device(np.cos(omega_y))
         d_omega_y_sin = cuda.to_device(np.sin(omega_y))
 
-        gpu.henon_inverse_partial_track_with_kick[blocks_per_grid, threads_per_block](
-            self.d_x, self.d_px, self.d_y, self.d_py, self.d_step, self.limit,
-            n_iterations, d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos, rng_states, kick_module, kick_sigma
-        )
+        if mu==0.0:
+            gpu.henon_inverse_partial_track_with_kick[blocks_per_grid, threads_per_block](
+                self.d_x, self.d_px, self.d_y, self.d_py, self.d_step, self.limit,
+                n_iterations, d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos, rng_states, kick_module, kick_sigma
+            )
+        else:
+            gpu.octo_henon_inverse_partial_track_with_kick[blocks_per_grid, threads_per_block](
+                self.d_x, self.d_px, self.d_y, self.d_py, self.d_step, self.limit,
+                n_iterations, d_omega_x_sin, d_omega_x_cos, d_omega_y_sin, d_omega_y_cos, mu, rng_states, kick_module, kick_sigma
+            )
         self.total_iters -= n_iterations
 
         self.d_x.copy_to_host(self.x)
