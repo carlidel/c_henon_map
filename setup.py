@@ -6,7 +6,7 @@ import subprocess
 
 from setuptools import setup
 
-__version__ = '0.0.15'
+__version__ = '0.0.15a'
 
 setup(
     name='henon_map',
@@ -15,9 +15,7 @@ setup(
     author_email='carlidel95@gmail.com',
     description='Henon map implemented in Numba',
     packages=["henon_map"],
-    install_requires=['numba', 'numpy',
-                      'matplotlib', 'tqdm', 'h5py', 'pynverse'],
-    setup_requires=['numba', 'numpy',
-                    'matplotlib', 'tqdm', 'h5py', 'pynverse'],
+    install_requires=['numba', 'numpy'],
+    setup_requires=['numba', 'numpy'],
     license='MIT',
 )
