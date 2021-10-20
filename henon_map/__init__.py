@@ -11,7 +11,6 @@ The octupolar kick is regulated by the parameter mu.
 from numba import cuda, jit, njit, prange
 from numba.cuda.random import create_xoroshiro128p_states
 import numpy as np
-import scipy.integrate as integrate
 
 from . import gpu_henon_core as gpu
 from . import cpu_henon_core as cpu
