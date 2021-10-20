@@ -335,6 +335,26 @@ class cpu_partial_track(partial_track):
         """        
         return self.x0, self.px0, self.y0, self.py0
 
+    def get_all_data(self):
+        """Get all data! (initial conditions, actual conditions and number of turns performed)
+
+        Returns
+        -------
+        tuples with the data
+            (tuple of arrays with initial conditions), (tuple of arrays with actual conditions), survival times
+        """        
+        return (self.x0, self.px0, self.y0, self.py0), (self.x, self.px, self.y, self.py), self.step
+
+    def get_total_iters(self):
+        """Return total number of iterations performed
+
+        Returns
+        -------
+        int
+            number of iterations performed
+        """        
+        return self.total_iters
+
     def add_kick(self, x=None, px=None, y=None, py=None):
         """Individually give a kick in cartesian coordinates to all the particles.
 
@@ -628,6 +648,26 @@ class gpu_partial_track(partial_track):
             x0, px0, y0, py0
         """
         return self.x0, self.px0, self.y0, self.py0
+    
+    def get_all_data(self):
+        """Get all data! (initial conditions, actual conditions and number of turns performed)
+
+        Returns
+        -------
+        tuples with the data
+            (tuple of arrays with initial conditions), (tuple of arrays with actual conditions), survival times
+        """
+        return (self.x0, self.px0, self.y0, self.py0), (self.x, self.px, self.y, self.py), self.step
+
+    def get_total_iters(self):
+        """Return total number of iterations performed
+
+        Returns
+        -------
+        int
+            number of iterations performed
+        """
+        return self.total_iters
 
     def add_kick(self, x=None, px=None, y=None, py=None):
         """Individually give a kick in cartesian coordinates to all the particles.
